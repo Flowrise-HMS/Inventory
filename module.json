@@ -1,0 +1,15 @@
+{
+    "name": "Inventory",
+    "alias": "inventory",
+    "description": "Central dispensary stock management, procurement, requisitions, and inter-branch stock transfers.",
+    "keywords": ["hms", "hospital", "inventory", "dispensary", "stock", "procurement"],
+    "priority": 35,
+    "providers": [
+        "Modules\\Inventory\\Providers\\InventoryServiceProvider"
+    ],
+    "files": [],
+    "requires": [
+        "Modules\\Core",
+        "Modules\\Pharmacy"
+    ]
+}
