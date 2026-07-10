@@ -5,7 +5,9 @@ namespace Modules\Inventory\Classes\Services;
 use App\Models\User;
 use Illuminate\Support\Facades\Auth;
 use Modules\Core\Models\Department;
+use Modules\Inventory\Classes\Support\Feature;
 use Modules\Inventory\Enums\RequisitionStatus;
+use Modules\Inventory\Events\RequisitionCreated;
 use Modules\Inventory\Models\Requisition;
 use Modules\Inventory\Models\RequisitionItem;
 
@@ -19,6 +21,10 @@ class RequisitionService
 
     public function create(array $data): Requisition
     {
+        if (! Feature::wardRequisitionsEnabled() && ! Feature::pharmacyProcurementEnabled()) {
+            throw new \RuntimeException('Inventory requisitions are disabled.');
+        }
+
         $branchId = $data['branch_id'];
 
         Department::byBranch($branchId)
@@ -42,7 +48,11 @@ class RequisitionService
             ]);
         }
 
-        return $requisition->load('items');
+        $requisition = $requisition->load('items');
+
+        RequisitionCreated::dispatch($requisition);
+
+        return $requisition;
     }
 
     public function approve(Requisition $requisition, ?array $approvedQuantities = null): void
@@ -98,6 +108,8 @@ class RequisitionService
             $this->issueToWard->issue($item, $qty);
         }
 
+        $requisition->load('items');
+
         $allIssued = $requisition->items->every(
             fn (RequisitionItem $i) => $i->quantity_issued >= ($i->quantity_approved ?? $i->quantity_requested)
         );
@@ -117,6 +129,10 @@ class RequisitionService
 
     public function close(Requisition $requisition, string $reason): void
     {
+        if ($requisition->status !== RequisitionStatus::PartiallyIssued) {
+            throw new \RuntimeException('Only partially issued requisitions can be closed.');
+        }
+
         $requisition->update([
             'status' => RequisitionStatus::Closed,
             'closed_reason' => $reason,

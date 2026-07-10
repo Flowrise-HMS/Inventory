@@ -23,8 +23,9 @@ class InventoryItemInfolist
                         TextEntry::make('category')
                             ->badge()
                             ->color(fn ($state) => $state?->getColor()),
-                        TextEntry::make('medication.display_name')
+                        TextEntry::make('medication_display')
                             ->label('Medication')
+                            ->state(fn ($record) => $record->medication?->displayName())
                             ->placeholder('-'),
                         TextEntry::make('unit.label')
                             ->label('Unit'),

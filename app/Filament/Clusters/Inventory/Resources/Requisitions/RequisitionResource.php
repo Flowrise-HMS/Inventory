@@ -6,11 +6,13 @@ use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Tables\Table;
 use Modules\Core\Enums\NavigationGroup;
+use Modules\Inventory\Classes\Support\Feature;
 use Modules\Inventory\Filament\Clusters\Inventory\InventoryCluster;
 use Modules\Inventory\Filament\Clusters\Inventory\Resources\Requisitions\Pages\CreateRequisition;
 use Modules\Inventory\Filament\Clusters\Inventory\Resources\Requisitions\Pages\EditRequisition;
 use Modules\Inventory\Filament\Clusters\Inventory\Resources\Requisitions\Pages\ListRequisitions;
 use Modules\Inventory\Filament\Clusters\Inventory\Resources\Requisitions\Pages\ViewRequisition;
+use Modules\Inventory\Filament\Clusters\Inventory\Resources\Requisitions\RelationManagers\RequisitionItemsRelationManager;
 use Modules\Inventory\Filament\Clusters\Inventory\Resources\Requisitions\Schemas\RequisitionForm;
 use Modules\Inventory\Filament\Clusters\Inventory\Resources\Requisitions\Schemas\RequisitionInfolist;
 use Modules\Inventory\Filament\Clusters\Inventory\Resources\Requisitions\Tables\RequisitionsTable;
@@ -25,6 +27,11 @@ class RequisitionResource extends Resource
     protected static ?string $cluster = InventoryCluster::class;
 
     protected static ?string $recordTitleAttribute = 'requisition_number';
+
+    public static function shouldRegisterNavigation(): bool
+    {
+        return Feature::wardRequisitionsEnabled() || Feature::pharmacyProcurementEnabled();
+    }
 
     public static function form(Schema $schema): Schema
     {
@@ -44,7 +51,7 @@ class RequisitionResource extends Resource
     public static function getRelations(): array
     {
         return [
-            //
+            RequisitionItemsRelationManager::class,
         ];
     }
 

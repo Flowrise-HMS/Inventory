@@ -66,4 +66,9 @@ class StockBalancePolicy
     {
         return $authUser->can('Reorder StockBalance');
     }
+
+    public function adjust(AuthUser $authUser, StockBalance $stockBalance): bool
+    {
+        return $authUser->can('adjust_stock');
+    }
 }

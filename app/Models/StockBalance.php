@@ -23,6 +23,8 @@ class StockBalance extends Model
         'location_type',
         'department_id',
         'stock_transfer_id',
+        'lot_number',
+        'expiry_date',
         'quantity_on_hand',
         'reorder_point',
         'unit_id',
@@ -32,6 +34,7 @@ class StockBalance extends Model
         'quantity_on_hand' => 'integer',
         'reorder_point' => 'integer',
         'location_type' => StockLocationType::class,
+        'expiry_date' => 'date',
     ];
 
     public function inventoryItem(): BelongsTo
@@ -52,5 +55,16 @@ class StockBalance extends Model
     public function unit(): BelongsTo
     {
         return $this->belongsTo(Unit::class, 'unit_id');
+    }
+
+    public static function dispensaryOnHand(string $inventoryItemId, string $branchId): int
+    {
+        return (int) static::query()
+            ->where('inventory_item_id', $inventoryItemId)
+            ->where('branch_id', $branchId)
+            ->where('location_type', StockLocationType::Dispensary)
+            ->whereNull('department_id')
+            ->whereNull('stock_transfer_id')
+            ->sum('quantity_on_hand');
     }
 }

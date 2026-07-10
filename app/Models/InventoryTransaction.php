@@ -21,6 +21,8 @@ class InventoryTransaction extends Model
         'delta',
         'quantity_after',
         'transaction_type',
+        'lot_number',
+        'expiry_date',
         'from_location_type',
         'from_location_id',
         'to_location_type',
@@ -36,6 +38,7 @@ class InventoryTransaction extends Model
         'delta' => 'integer',
         'quantity_after' => 'integer',
         'transaction_type' => TransactionType::class,
+        'expiry_date' => 'date',
     ];
 
     public function inventoryItem(): BelongsTo

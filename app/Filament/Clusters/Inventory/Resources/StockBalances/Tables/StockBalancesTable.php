@@ -23,6 +23,15 @@ class StockBalancesTable
                     ->color(fn (StockLocationType $state): ?string => $state->getColor()),
                 TextColumn::make('department.name')
                     ->toggleable(),
+                TextColumn::make('lot_number')
+                    ->label(__('Lot'))
+                    ->placeholder('—')
+                    ->toggleable(),
+                TextColumn::make('expiry_date')
+                    ->label(__('Expiry'))
+                    ->date()
+                    ->placeholder('—')
+                    ->toggleable(),
                 TextColumn::make('quantity_on_hand')
                     ->sortable(),
                 TextColumn::make('reorder_point'),

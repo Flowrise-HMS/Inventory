@@ -6,11 +6,13 @@ use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Tables\Table;
 use Modules\Core\Enums\NavigationGroup;
+use Modules\Inventory\Classes\Support\Feature;
 use Modules\Inventory\Filament\Clusters\Inventory\InventoryCluster;
 use Modules\Inventory\Filament\Clusters\Inventory\Resources\StockTransfers\Pages\CreateStockTransfer;
 use Modules\Inventory\Filament\Clusters\Inventory\Resources\StockTransfers\Pages\EditStockTransfer;
 use Modules\Inventory\Filament\Clusters\Inventory\Resources\StockTransfers\Pages\ListStockTransfers;
 use Modules\Inventory\Filament\Clusters\Inventory\Resources\StockTransfers\Pages\ViewStockTransfer;
+use Modules\Inventory\Filament\Clusters\Inventory\Resources\StockTransfers\RelationManagers\StockTransferItemsRelationManager;
 use Modules\Inventory\Filament\Clusters\Inventory\Resources\StockTransfers\Schemas\StockTransferForm;
 use Modules\Inventory\Filament\Clusters\Inventory\Resources\StockTransfers\Schemas\StockTransferInfolist;
 use Modules\Inventory\Filament\Clusters\Inventory\Resources\StockTransfers\Tables\StockTransfersTable;
@@ -25,6 +27,11 @@ class StockTransferResource extends Resource
     protected static ?string $cluster = InventoryCluster::class;
 
     protected static ?string $recordTitleAttribute = 'transfer_number';
+
+    public static function shouldRegisterNavigation(): bool
+    {
+        return Feature::interBranchTransfersEnabled();
+    }
 
     public static function form(Schema $schema): Schema
     {
@@ -43,7 +50,9 @@ class StockTransferResource extends Resource
 
     public static function getRelations(): array
     {
-        return [];
+        return [
+            StockTransferItemsRelationManager::class,
+        ];
     }
 
     public static function getPages(): array

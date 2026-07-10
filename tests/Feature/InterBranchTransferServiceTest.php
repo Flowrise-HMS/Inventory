@@ -69,14 +69,14 @@ class InterBranchTransferServiceTest extends TestCase
             ],
         ]);
 
-        // Seed stock in fromBranch dispensary linked to this transfer
+        // Seed stock in fromBranch dispensary (normal dispensary balance)
         $ledger = app(StockLedgerService::class);
         $ledger->lockAndIncrement(
             itemId: $item->id,
             branchId: $fromBranch->id,
             locationType: StockLocationType::Dispensary,
             departmentId: null,
-            stockTransferId: $transfer->id,
+            stockTransferId: null,
             qty: 50,
             transactionType: TransactionType::Receive,
             reference: null,
@@ -109,14 +109,14 @@ class InterBranchTransferServiceTest extends TestCase
             ],
         ]);
 
-        // Seed stock in fromBranch dispensary linked to this transfer
+        // Seed stock in fromBranch dispensary (normal dispensary balance)
         $ledger = app(StockLedgerService::class);
         $ledger->lockAndIncrement(
             itemId: $item->id,
             branchId: $fromBranch->id,
             locationType: StockLocationType::Dispensary,
             departmentId: null,
-            stockTransferId: $transfer->id,
+            stockTransferId: null,
             qty: 50,
             transactionType: TransactionType::Receive,
             reference: null,

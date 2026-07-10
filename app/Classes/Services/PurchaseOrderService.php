@@ -99,6 +99,8 @@ class PurchaseOrderService
                     qty: $item['quantity_received'],
                     transactionType: TransactionType::Receive,
                     reference: $receiptItem,
+                    lotNumber: $item['lot_number'] ?? null,
+                    expiryDate: isset($item['expiry_date']) ? (string) $item['expiry_date'] : null,
                 );
             }
 

@@ -1,5 +1,7 @@
 # Inventory module
 
+> **Status:** In progress — see [Module Status](../../docs/shared/module-status.md).
+
 **In one sentence:** The Inventory module manages central dispensary stock, procurement (purchase orders), ward/department requisitions, inter-branch stock transfers, and stock adjustments so the hospital can track, move, and replenish non-pharmacy supplies and equipment alongside pharmacy-mediated items.
 
 ## Why this module exists
@@ -13,7 +15,7 @@ This module brings dispensary and ward-level stock into a single ledger, connect
 - **Depends on Core** for branches, departments, units, and user/permission foundations.
 - **Depends on Pharmacy** for the `Medication` catalog — inventory items can reference medications via `medication_id` for pharmacy-integrated stock.
 - Provides its own stock ledger (`StockBalance`, `InventoryTransaction`) separate from Pharmacy's `StockItem`/`StockMovement`.
-- Integrates with Pharmacy's `StockProviderContract` so inventory issues to pharmacy update both ledgers atomically.
+- Integrates with Pharmacy via Core's `StockProviderContract` (bound to Pharmacy `StockService`) so inventory issues to pharmacy update both ledgers atomically.
 
 ```mermaid
 flowchart LR
@@ -26,61 +28,72 @@ flowchart LR
 
 ## What you can do with it
 
-- Maintain an **inventory item catalog** (supplies, consumables, equipment, general items) with optional medication linking.
-- Track **stock balances** across dispensary, ward, and in-transit locations per branch.
-- Create and manage **purchase orders** — from draft through submission, partial/full receipt, and close.
-- Record **goods received notes** against purchase orders with lot numbers, expiry dates, and unit prices.
-- Create **ward/department requisitions** — request, approve, decline, issue, and close with partial issuance.
-- Run **inter-branch stock transfers** — create, ship, partially receive, and close with in-transit tracking.
-- Perform **stock adjustments** to correct on-hand quantities.
-- View the **complete inventory ledger** — every increment, decrement, and transfer recorded as transactions.
-- **Print documents** — Goods Received Notes (GRN), Requisition Vouchers, Stock Transfer Notes, Adjustment Vouchers, and Stock Cards as PDF.
-- Toggle features on/off: pharmacy procurement integration, ward requisitions, inter-branch transfers.
+### Built (services + Filament)
+
+- Maintain an **inventory item catalog** (supplies, consumables, equipment, general items) with optional medication linking and initial dispensary stock on create.
+- Track **stock balances** across dispensary, ward, and in-transit locations per branch, including **lot tracking** with **FEFO** ledger decrement.
+- Create and manage **purchase orders** — draft, submit, receive (partial quantities via modal), close.
+- **Approve, decline, issue, or close** ward/department requisitions from Filament (issue on View → Items; **Fulfill items** shortcut on list/widget).
+- Run **inter-branch stock transfers** — create, ship, receive (partial), close with in-transit write-off.
+- **Adjust stock** on any balance (Stock Balances → View → Adjust stock).
+- View the **complete inventory ledger** and **analytics report** (8 chart widgets, CSV export).
+- **Print documents** — GRN, Requisition Vouchers, Stock Transfer Notes, Adjustment Vouchers, and Stock Cards as PDF.
+- **My ward requests** dashboard widget with slide-over create/view and fulfill shortcut.
+- **Pharmacy → Stock Items → Request from central store** for medication-linked replenishment.
+- **Auto-reorder draft PO** generation from dispensary low stock.
+
+### Feature toggles
+
+Enforced via `Feature::` in services and Filament navigation (`inventory_pharmacy_procurement`, `inventory_ward_requisitions`, `inventory_inter_branch_transfers`).
+
+### Pending
+
+- Scheduled reorder alerts (email/scheduler).
 
 ## How it works (simple)
 
 1. **Set up** your inventory catalog (items, suppliers, units, branches).
-2. **Procure stock**: Create a purchase order → submit to supplier → receive goods → stock appears in dispensary.
-3. **Fulfill requests**: Ward staff request items via requisition → supervisor approves → dispensary issues stock.
+2. **Procure stock**: Create a purchase order → submit to supplier → receive goods → stock appears in dispensary (optionally by lot/expiry).
+3. **Fulfill requests**: Ward staff request items via requisition → supervisor approves → dispensary issues stock from Filament.
 4. **Move stock between sites**: Source branch ships → in-transit tracking → destination branch receives.
-5. **Reconcile**: Run stock adjustments when physical count differs from system, review the transaction ledger.
+5. **Reconcile**: Run stock adjustments when physical count differs from system; review the transaction ledger.
 
 ## What is inside this folder
 
 | Path | Purpose |
 |------|---------|
-| `app/Models/` | Inventory items, stock balances, ledger transactions, POs, requisitions, transfers, suppliers. |
-| `app/Classes/Services/` | Business logic: stock ledger, document numbering, PO management, requisitions, transfers, adjustments, issue-to-ward, issue-to-pharmacy. |
-| `app/Filament/Clusters/Inventory/` | Admin UI: cluster, 7 Filament resources, schemas, tables, pages. |
-| `app/Enums/` | Item categories, stock location types, transaction types, status enums for POs, requisitions, transfers. |
-| `app/Policies/` | Authorization rules for each model. |
+| `app/Models/` | 12 v1 models + `DocumentSequence` for numbering. |
+| `app/Classes/Services/` | Ledger (lot/FEFO), PO, requisition, transfer, adjustment, issue-to-ward/pharmacy, auto-reorder, analytics, consumption, PDF generators. |
+| `app/Filament/Clusters/Inventory/` | Admin UI: cluster, 7 resources, analytics report page, 8 chart widgets. |
+| `app/Filament/Widgets/` | `MyWardRequestsWidget` for requestor dashboard. |
+| `app/Enums/` | Item categories, stock location types, transaction types, status enums. |
+| `app/Policies/` | Authorization rules (7 policies, Shield-standard permissions). |
 | `app/Providers/` | Module boot/register logic. |
-| `database/migrations/` | 13 schema migrations for all inventory tables. |
-| `resources/views/pdf/` | Printable PDF document templates (GRN, vouchers, notes, stock card). |
-| `database/factories/` | Model factories for testing. |
-| `tests/` | Feature tests for core services and PDF generation. |
+| `database/migrations/` | 14 schema migrations (including lot tracking). |
+| `database/factories/` | 5 model factories. |
+| `resources/views/pdf/` | Printable PDF templates. |
+| `tests/Feature/` | 20 test files (module suite: 88 passed / 1 skipped when verified 2026-07-10). |
 
 ## Dependencies
 
 - `flowrise-hms/core`
-- `flowrise-hms/pharmacy` (optional via feature toggle `inventory_pharmacy_procurement`)
+- `flowrise-hms/pharmacy` (required in `module.json`; pharmacy procurement can be toggled off via `inventory_pharmacy_procurement`)
 
 See [module status](../../docs/shared/module-status.md) for rollout state.
 
 ## Further reading
 
 - **Developer guide:** [Inventory Developer Guide](docs/developer-guide.md)
-- Implementation plan: [docs/superpowers/plans/2026-07-09-inventory-module-implementation.md](../../docs/superpowers/plans/2026-07-09-inventory-module-implementation.md)
-- Design spec: [docs/superpowers/specs/2026-07-09-inventory-module-design.md](../../docs/superpowers/specs/2026-07-09-inventory-module-design.md)
+- **Admin guide:** [Inventory Administration](../../docs/admin-guide/inventory.md)
 - Project-level docs: [docs/README.md](../../docs/README.md)
 
 ## For developers
 
 - **Namespace:** `Modules\Inventory\...`
 - **Service provider:** `Modules\Inventory\Providers\InventoryServiceProvider`
-- **Filament cluster:** `Modules\Inventory\App\Filament\Clusters\Inventory\InventoryCluster`
-- **Plugin:** `Modules\Inventory\App\Filament\InventoryPlugin` (registered in `config/app.php` or panel provider)
-- **Stock contract bridge:** `StockProviderContract::incrementWithReference()` is implemented by `StockService` (Pharmacy) and called from `IssueToPharmacyService`
-- **Feature toggles:** Managed via `ManageFeatureSettings` in Core; checked with `Feature::isEnabled('inventory_ward_requisitions')` etc.
-- **Document numbering:** Automatic number generation for POs (`PO-...`), requisitions (`REQ-...`), transfers (`TRF-...`) via `DocumentNumberingService`
-- **Running tests:** `php artisan test --filter='Inventory'` or `php artisan test Modules/Inventory/tests/`
+- **Filament cluster:** `Modules\Inventory\Filament\Clusters\Inventory\InventoryCluster`
+- **Plugin:** `Modules\Inventory\Filament\InventoryPlugin`
+- **Pharmacy bridge:** `IssueToPharmacyService` calls `StockProviderContract::incrementWithReference()`; Pharmacy binds the contract to `StockService` in `PharmacyServiceProvider`
+- **Feature toggles:** `FeatureSettings` properties (`inventory_pharmacy_procurement`, `inventory_ward_requisitions`, `inventory_inter_branch_transfers`); enforced in services and Filament navigation via `Feature::`
+- **Document numbering:** `DocumentNumberingService` generates `PO-`, `REQ-`, `TRF-` prefixed numbers
+- **Running tests:** `php artisan test Modules/Inventory/tests/ --compact`

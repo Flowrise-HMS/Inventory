@@ -120,4 +120,61 @@ class StockLedgerServiceTest extends TestCase
             reference: null,
         );
     }
+
+    public function test_add_opening_stock_creates_dispensary_balance_with_quantity_and_reorder_point(): void
+    {
+        $user = User::factory()->create();
+        $this->actingAs($user);
+
+        $branch = Branch::factory()->create();
+        $unit = Unit::factory()->create();
+        $item = InventoryItem::factory()->create(['unit_id' => $unit->id]);
+
+        $service = app(StockLedgerService::class);
+
+        $balance = $service->addOpeningStock(
+            itemId: $item->id,
+            branchId: $branch->id,
+            qty: 25,
+            reorderPoint: 5,
+        );
+
+        $this->assertEquals(25, $balance->quantity_on_hand);
+        $this->assertEquals(5, $balance->reorder_point);
+        $this->assertEquals(StockLocationType::Dispensary, $balance->location_type);
+    }
+
+    public function test_add_opening_stock_accumulates_on_existing_balance(): void
+    {
+        $user = User::factory()->create();
+        $this->actingAs($user);
+
+        $branch = Branch::factory()->create();
+        $unit = Unit::factory()->create();
+        $item = InventoryItem::factory()->create(['unit_id' => $unit->id]);
+
+        $service = app(StockLedgerService::class);
+
+        $service->addOpeningStock(itemId: $item->id, branchId: $branch->id, qty: 10);
+        $balance = $service->addOpeningStock(itemId: $item->id, branchId: $branch->id, qty: 15);
+
+        $this->assertEquals(25, $balance->quantity_on_hand);
+    }
+
+    public function test_add_opening_stock_with_zero_quantity_only_sets_reorder_point(): void
+    {
+        $user = User::factory()->create();
+        $this->actingAs($user);
+
+        $branch = Branch::factory()->create();
+        $unit = Unit::factory()->create();
+        $item = InventoryItem::factory()->create(['unit_id' => $unit->id]);
+
+        $service = app(StockLedgerService::class);
+
+        $balance = $service->addOpeningStock(itemId: $item->id, branchId: $branch->id, qty: 0, reorderPoint: 10);
+
+        $this->assertEquals(0, $balance->quantity_on_hand);
+        $this->assertEquals(10, $balance->reorder_point);
+    }
 }

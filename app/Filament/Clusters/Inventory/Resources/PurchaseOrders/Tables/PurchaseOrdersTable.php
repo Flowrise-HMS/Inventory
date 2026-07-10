@@ -9,6 +9,9 @@ use Filament\Actions\DeleteAction;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
 use Filament\Actions\ViewAction;
+use Filament\Forms\Components\DatePicker;
+use Filament\Forms\Components\Repeater;
+use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
@@ -68,16 +71,65 @@ class PurchaseOrdersTable
                     ->label('Receive')
                     ->icon('heroicon-m-check')
                     ->color('success')
-                    ->requiresConfirmation()
                     ->visible(fn ($record): bool => in_array($record->status, [
                         PurchaseOrderStatus::Submitted,
                         PurchaseOrderStatus::PartiallyReceived,
                     ]))
-                    ->action(function ($record): void {
-                        $items = $record->items()->get()->map(fn ($item) => [
+                    ->fillForm(fn ($record): array => [
+                        'items' => $record->items()->with('inventoryItem')->get()->map(fn ($item) => [
                             'purchase_order_item_id' => $item->id,
+                            'item_label' => $item->inventoryItem?->name ?? __('Unknown item'),
                             'quantity_received' => $item->quantity_ordered - $item->quantity_received,
-                        ])->all();
+                            'remaining' => $item->quantity_ordered - $item->quantity_received,
+                        ])->all(),
+                    ])
+                    ->form([
+                        Repeater::make('items')
+                            ->label('Line items')
+                            ->schema([
+                                TextInput::make('purchase_order_item_id')->hidden(),
+                                TextInput::make('item_label')
+                                    ->label('Item')
+                                    ->disabled()
+                                    ->dehydrated(false),
+                                TextInput::make('remaining')
+                                    ->label('Remaining')
+                                    ->disabled()
+                                    ->dehydrated(false)
+                                    ->numeric(),
+                                TextInput::make('quantity_received')
+                                    ->label('Quantity to receive')
+                                    ->numeric()
+                                    ->minValue(0)
+                                    ->required(),
+                                TextInput::make('lot_number')
+                                    ->label(__('Lot / batch #'))
+                                    ->maxLength(100),
+                                DatePicker::make('expiry_date')
+                                    ->label(__('Expiry date'))
+                                    ->native(false),
+                            ])
+                            ->addable(false)
+                            ->deletable(false)
+                            ->reorderable(false),
+                    ])
+                    ->action(function ($record, array $data): void {
+                        $items = collect($data['items'])
+                            ->filter(fn (array $item): bool => (int) $item['quantity_received'] > 0)
+                            ->map(fn (array $item): array => [
+                                'purchase_order_item_id' => $item['purchase_order_item_id'],
+                                'quantity_received' => (int) $item['quantity_received'],
+                                'lot_number' => filled($item['lot_number'] ?? null) ? (string) $item['lot_number'] : null,
+                                'expiry_date' => filled($item['expiry_date'] ?? null) ? (string) $item['expiry_date'] : null,
+                            ])
+                            ->values()
+                            ->all();
+
+                        if ($items === []) {
+                            Notification::make()->warning()->title('No quantities to receive')->send();
+
+                            return;
+                        }
 
                         app(PurchaseOrderService::class)->receive($record, [
                             'received_at' => now(),

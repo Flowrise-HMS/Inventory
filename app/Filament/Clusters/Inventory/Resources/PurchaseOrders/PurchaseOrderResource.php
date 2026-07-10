@@ -11,6 +11,7 @@ use Modules\Inventory\Filament\Clusters\Inventory\Resources\PurchaseOrders\Pages
 use Modules\Inventory\Filament\Clusters\Inventory\Resources\PurchaseOrders\Pages\EditPurchaseOrder;
 use Modules\Inventory\Filament\Clusters\Inventory\Resources\PurchaseOrders\Pages\ListPurchaseOrders;
 use Modules\Inventory\Filament\Clusters\Inventory\Resources\PurchaseOrders\Pages\ViewPurchaseOrder;
+use Modules\Inventory\Filament\Clusters\Inventory\Resources\PurchaseOrders\RelationManagers\PurchaseOrderItemsRelationManager;
 use Modules\Inventory\Filament\Clusters\Inventory\Resources\PurchaseOrders\Schemas\PurchaseOrderForm;
 use Modules\Inventory\Filament\Clusters\Inventory\Resources\PurchaseOrders\Schemas\PurchaseOrderInfolist;
 use Modules\Inventory\Filament\Clusters\Inventory\Resources\PurchaseOrders\Tables\PurchaseOrdersTable;
@@ -44,7 +45,7 @@ class PurchaseOrderResource extends Resource
     public static function getRelations(): array
     {
         return [
-            //
+            PurchaseOrderItemsRelationManager::class,
         ];
     }
 

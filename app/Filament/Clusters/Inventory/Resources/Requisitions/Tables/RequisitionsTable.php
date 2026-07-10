@@ -15,6 +15,7 @@ use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Modules\Inventory\Classes\Services\RequisitionService;
 use Modules\Inventory\Enums\RequisitionStatus;
+use Modules\Inventory\Filament\Clusters\Inventory\Resources\Requisitions\RequisitionResource;
 use Modules\Inventory\Models\Requisition;
 
 class RequisitionsTable
@@ -72,6 +73,29 @@ class RequisitionsTable
                     ->action(function (Requisition $record, array $data): void {
                         app(RequisitionService::class)->decline($record, $data['decline_reason']);
                         Notification::make()->success()->title('Requisition declined')->send();
+                    }),
+                Action::make('fulfill')
+                    ->label('Fulfill items')
+                    ->icon('heroicon-m-arrow-right-circle')
+                    ->color('primary')
+                    ->url(fn (Requisition $record): string => RequisitionResource::getUrl('view', ['record' => $record]).'#relationManagerItems')
+                    ->visible(fn (Requisition $record): bool => in_array($record->status, [
+                        RequisitionStatus::Approved,
+                        RequisitionStatus::PartiallyIssued,
+                    ], true))
+                    ->authorize(fn (Requisition $record): bool => auth()->user()->can('issue', $record)),
+                Action::make('close')
+                    ->label('Close')
+                    ->icon('heroicon-m-lock-closed')
+                    ->color('gray')
+                    ->visible(fn (Requisition $record): bool => $record->status === RequisitionStatus::PartiallyIssued)
+                    ->authorize(fn (Requisition $record): bool => auth()->user()->can('issue', $record))
+                    ->form([
+                        Textarea::make('closed_reason')->label('Reason')->required(),
+                    ])
+                    ->action(function (Requisition $record, array $data): void {
+                        app(RequisitionService::class)->close($record, $data['closed_reason']);
+                        Notification::make()->success()->title('Requisition closed')->send();
                     }),
                 Action::make('print_voucher')
                     ->label('Print Voucher')

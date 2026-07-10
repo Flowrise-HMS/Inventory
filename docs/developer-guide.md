@@ -8,7 +8,7 @@ For current rollout status, see [Module Status](../../docs/shared/module-status.
 
 1. [Modules/Inventory/README.md](../README.md)
 2. [Inventory design spec](../../docs/superpowers/specs/2026-07-09-inventory-module-design.md)
-3. [Inventory implementation plan](../../docs/superpowers/plans/2026-07-09-inventory-module-implementation.md)
+3. [Module Status](../../docs/shared/module-status.md)
 
 ## Architectural Role
 
@@ -26,7 +26,7 @@ Key design rules:
 - **Location types** — Stock exists at `dispensary`, `ward`, or `in_transit` locations. There is no separate `pharmacy` location type in v1 — pharmacy stock flows through the `StockProviderContract` bridge instead.
 - **Document numbering** — All user-facing documents (POs, requisitions, transfers) get auto-generated numbers via `DocumentNumberingService`.
 
-## Models (13 models)
+## Models (12 v1 models + DocumentSequence)
 
 ### InventoryItem
 | Field | Type | Notes |
@@ -174,7 +174,25 @@ Draft → Shipped → PartiallyReceived → Received → Closed
 ### InventoryItemCategory
 `Supplies`, `Equipment`, `Consumables`, `General` — high-level categorization.
 
-## Services (8 services)
+## Services
+
+### Core workflow services (9)
+
+| Service | Responsibility |
+|---------|----------------|
+| `StockLedgerService` | Pessimistic locking, increment/decrement, transaction audit |
+| `DocumentNumberingService` | Sequential PO/REQ/TRF numbers per branch/date |
+| `PurchaseOrderService` | PO lifecycle: create, submit, receive, close, cancel |
+| `RequisitionService` | Requisition lifecycle: create, approve, decline, cancel, issue, close |
+| `IssueToWardService` | Dispensary → ward stock movement |
+| `IssueToPharmacyService` | Dispensary → pharmacy via `StockProviderContract` |
+| `InterBranchTransferService` | Transfer create, ship, receive, close, cancel |
+| `StockAdjustmentService` | Set on-hand quantity to a new value via ledger deltas |
+| `InventoryAnalyticsService` | Report page aggregations and CSV export data |
+
+### PDF services (5)
+
+`GoodsReceivedNotePdfService`, `RequisitionVoucherPdfService`, `TransferNotePdfService`, `AdjustmentVoucherPdfService`, `StockCardPdfService` — each with `render()` and `filename()` methods, invoked from single-action controllers.
 
 ### StockLedgerService
 Core ledger engine with pessimistic locking.
@@ -224,15 +242,15 @@ cancel(PurchaseOrder $po): void
 ### RequisitionService
 ```php
 create(array $data): Requisition
-approve(Requisition $requisition): void
+approve(Requisition $requisition, ?array $approvedQuantities = null): void
 decline(Requisition $requisition, string $reason): void
 cancel(Requisition $requisition): void
-issue(Requisition $requisition, array $items): void
-close(Requisition $requisition, ?string $reason): void
-fetchForRequestor(User $user): LengthAwarePaginator
+issue(RequisitionItem $item, int $qty): void
+close(Requisition $requisition, string $reason): void
+fetchForRequestor(User $user): Collection
 ```
 
-`issue()` delegates to `IssueToWardService` or `IssueToPharmacyService` depending on whether `InventoryItem.medication_id` is set.
+`issue()` delegates to `IssueToWardService` or `IssueToPharmacyService` depending on whether `InventoryItem.medication_id` is set. Updates requisition status to `PartiallyIssued` or `Issued`.
 
 ### IssueToWardService
 Issues stock from dispensary to ward location. Calls `StockLedgerService::lockAndDecrement` from `Dispensary` then `lockAndIncrement` to `Ward` with the same `department_id`.
@@ -267,26 +285,22 @@ Calculates `delta = newQty - currentQty`, calls `lockAndIncrement` or `lockAndDe
 
 ## Filament Resources
 
-7 resources under `InventoryCluster` (navigation group: `Clinical`):
+7 resources plus one report page under `InventoryCluster`:
 
-| Resource | Model | Pages | Read-only? |
-|----------|-------|-------|------------|
-| InventoryItems | InventoryItem | List, Create, Edit, View | No |
-| Suppliers | Supplier | List, Create, Edit, View | No |
-| StockBalances | StockBalance | List, View | Yes |
-| InventoryTransactions | InventoryTransaction | List, View | Yes |
-| Requisitions | Requisition | List, Create, Edit, View | No |
-| PurchaseOrders | PurchaseOrder | List, Create, Edit, View | No |
-| StockTransfers | StockTransfer | List, Create, Edit, View | No |
+| Resource / Page | Model | Pages | Workflow actions in Filament |
+|-----------------|-------|-------|------------------------------|
+| InventoryItems | InventoryItem | List, Create, Edit, View | — |
+| Suppliers | Supplier | List, Create, Edit, View | — |
+| StockBalances | StockBalance | List, View | Adjust stock |
+| InventoryTransactions | InventoryTransaction | List, View | Read-only |
+| Requisitions | Requisition | List, Create, Edit, View | Approve, decline, issue (Items tab / Fulfill shortcut), close, print/download voucher |
+| PurchaseOrders | PurchaseOrder | List, Create, Edit, View | Submit, receive (partial modal), close, print/download GRN, generate from low stock |
+| StockTransfers | StockTransfer | List, Create, Edit, View | Ship, receive (partial modal), close, print/download note |
+| InventoryReport | — | Analytics page | 8 chart widgets, date/branch filters, CSV export |
 
-Each resource follows the same directory structure:
-- `Schemas/InventoryItemForm.php` / `InventoryItemInfolist.php`
-- `Tables/InventoryItemsTable.php`
-- `Pages/ListInventoryItems.php` / `CreateInventoryItem.php` / `EditInventoryItem.php` / `ViewInventoryItem.php`
+`MyWardRequestsWidget` (dashboard) lists the current user's requisitions with view, create, and fulfill shortcuts.
 
-Workflow actions are attached via `Tables\Actions` on the List/View pages (e.g., `RequisitionsTable` has approve/decline/issue actions).
-
-Each resource also has **Print** and **Download** actions that open PDF documents (visible based on document status and user permissions).
+Each resource follows the `Schemas/`, `Tables/`, `Pages/` directory pattern.
 
 ### PDF Document Printing
 
@@ -308,29 +322,51 @@ All follow the same pattern established by Billing's `InvoicePdfService`: a serv
 
 ### Feature Toggles
 
-Defined in `Modules\Core\app\Settings\FeatureSettings.php`:
+Defined in `Modules\Core\Settings\FeatureSettings` and editable via Core **Manage Feature Settings**:
 
-- `inventory_pharmacy_procurement` — enable pharmacy-linked items and issue-to-pharmacy
-- `inventory_ward_requisitions` — enable requisition workflow
-- `inventory_inter_branch_transfers` — enable stock transfers between branches
+- `inventory_pharmacy_procurement` — pharmacy-linked items and issue-to-pharmacy
+- `inventory_ward_requisitions` — requisition workflow
+- `inventory_inter_branch_transfers` — inter-branch transfers
 
-Checked via `Feature::isEnabled('inventory_ward_requisitions')`. When disabled, the corresponding Filament resource is hidden and service methods should be gated.
+Read via `Modules\Inventory\Classes\Support\Feature`:
+
+```php
+Feature::pharmacyProcurementEnabled()
+Feature::wardRequisitionsEnabled()
+Feature::interBranchTransfersEnabled()
+```
+
+**Enforcement:** toggles are enforced in services (throw when disabled) and Filament navigation/resources via `Feature::`.
 
 ## Testing
 
-15 feature tests covering the core services:
+20 feature test files (module suite: 88 passed / 1 skipped when verified 2026-07-10):
 
 | Test file | What it tests |
 |-----------|---------------|
 | `StockLedgerServiceTest` | LockAndIncrement, lockAndDecrement, auto-creates balances, writes transactions |
+| `StockLotFefoTest` | Lot balances on PO receive, FEFO decrement on ward issue |
 | `DocumentNumberingServiceTest` | Sequence generation, prefix/date/branch locking |
 | `PurchaseOrderServiceTest` | CRUD, submit, partial/full receive, close remaining, cancel |
-| `RequisitionServiceTest` | CRUD, approve, decline, issue, cancel, close |
+| `RequisitionServiceTest` | Create, approve, decline, issue, close |
 | `InterBranchTransferServiceTest` | CRUD, ship, partial/full receive, close, cancel |
+| `StockAdjustmentServiceTest` | Adjust stock up/down with audit trail |
+| `IssueToPharmacyServiceTest` | Pharmacy bridge via `StockProviderContract` |
+| `IssueToWardServiceTest` | Ward issue from approved requisitions |
+| `FeatureToggleTest` | Services blocked when toggles disabled |
+| `AutoReorderServiceTest` | Draft PO from low stock |
+| `PdfGenerationTest` | All five PDF document types |
+| `InventoryReportTest` | Analytics report page and CSV export |
+| `MyWardRequestsWidgetTest` | Requestor dashboard widget |
+| `PharmacyStockItemTableIntegrationTest` | Central store request from Pharmacy |
+| `RequisitionNotificationTest` | Requisition status notifications |
+| `StockConsumptionServiceTest` | MAR ward consumption integration |
+| `CreatePurchaseOrderFormTest` | Filament PO create form |
+| `InventoryItemResourceRelationManagersTest` | Item relation managers |
+| `FhirInventoryItemTransformerTest` | InventoryItem FHIR transformer (unit) |
 
 Run with:
 ```bash
-php artisan test --filter='Inventory'
 php artisan test Modules/Inventory/tests/ --compact
 ```
 

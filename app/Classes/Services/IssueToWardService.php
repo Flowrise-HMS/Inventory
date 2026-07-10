@@ -3,6 +3,7 @@
 namespace Modules\Inventory\Classes\Services;
 
 use Illuminate\Support\Facades\DB;
+use Modules\Inventory\Classes\Support\Feature;
 use Modules\Inventory\Enums\StockLocationType;
 use Modules\Inventory\Enums\TransactionType;
 use Modules\Inventory\Models\RequisitionItem;
@@ -15,28 +16,23 @@ class IssueToWardService
 
     public function issue(RequisitionItem $requisitionItem, int $qty): void
     {
+        if (! Feature::wardRequisitionsEnabled()) {
+            throw new \RuntimeException('Inventory ward requisitions are disabled.');
+        }
+
         $requisition = $requisitionItem->requisition;
 
-        DB::transaction(function () use ($requisitionItem, $requisition, $qty) {
-            // Outbound from dispensary
-            $this->stockLedger->lockAndDecrement(
+        DB::transaction(function () use ($requisitionItem, $requisition, $qty): void {
+            $this->stockLedger->transferQuantity(
                 itemId: $requisitionItem->inventory_item_id,
-                branchId: $requisition->branch_id,
-                locationType: StockLocationType::Dispensary,
-                departmentId: null,
-                stockTransferId: null,
-                qty: $qty,
-                transactionType: TransactionType::Issue,
-                reference: $requisitionItem,
-            );
-
-            // Inbound to ward
-            $this->stockLedger->lockAndIncrement(
-                itemId: $requisitionItem->inventory_item_id,
-                branchId: $requisition->branch_id,
-                locationType: StockLocationType::Ward,
-                departmentId: $requisition->department_id,
-                stockTransferId: null,
+                fromBranchId: $requisition->branch_id,
+                fromLocation: StockLocationType::Dispensary,
+                fromDepartmentId: null,
+                fromStockTransferId: null,
+                toBranchId: $requisition->branch_id,
+                toLocation: StockLocationType::Ward,
+                toDepartmentId: $requisition->department_id,
+                toStockTransferId: null,
                 qty: $qty,
                 transactionType: TransactionType::Issue,
                 reference: $requisitionItem,

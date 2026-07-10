@@ -12,6 +12,7 @@ enum TransactionType: string implements HasColor, HasLabel
     case TransferShip = 'transfer_ship';
     case TransferReceive = 'transfer_receive';
     case Adjust = 'adjust';
+    case Consume = 'consume';
 
     public function getLabel(): string
     {
@@ -21,6 +22,7 @@ enum TransactionType: string implements HasColor, HasLabel
             self::TransferShip => 'Transfer Ship',
             self::TransferReceive => 'Transfer Receive',
             self::Adjust => 'Adjustment',
+            self::Consume => 'Consume',
         };
     }
 
@@ -32,6 +34,7 @@ enum TransactionType: string implements HasColor, HasLabel
             self::TransferShip => 'info',
             self::TransferReceive => 'info',
             self::Adjust => 'danger',
+            self::Consume => 'gray',
         };
     }
 

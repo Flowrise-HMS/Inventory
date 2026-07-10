@@ -11,6 +11,8 @@ use Modules\Inventory\Filament\Clusters\Inventory\Resources\InventoryItems\Pages
 use Modules\Inventory\Filament\Clusters\Inventory\Resources\InventoryItems\Pages\EditInventoryItem;
 use Modules\Inventory\Filament\Clusters\Inventory\Resources\InventoryItems\Pages\ListInventoryItems;
 use Modules\Inventory\Filament\Clusters\Inventory\Resources\InventoryItems\Pages\ViewInventoryItem;
+use Modules\Inventory\Filament\Clusters\Inventory\Resources\InventoryItems\RelationManagers\InventoryTransactionsRelationManager;
+use Modules\Inventory\Filament\Clusters\Inventory\Resources\InventoryItems\RelationManagers\StockBalancesRelationManager;
 use Modules\Inventory\Filament\Clusters\Inventory\Resources\InventoryItems\Schemas\InventoryItemForm;
 use Modules\Inventory\Filament\Clusters\Inventory\Resources\InventoryItems\Schemas\InventoryItemInfolist;
 use Modules\Inventory\Filament\Clusters\Inventory\Resources\InventoryItems\Tables\InventoryItemsTable;
@@ -44,7 +46,8 @@ class InventoryItemResource extends Resource
     public static function getRelations(): array
     {
         return [
-            //
+            StockBalancesRelationManager::class,
+            InventoryTransactionsRelationManager::class,
         ];
     }
 
