@@ -2,7 +2,7 @@
 
 namespace Modules\Inventory\Classes\Services;
 
-use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Modules\Inventory\Enums\StockLocationType;
 use Modules\Inventory\Models\PurchaseOrder;
 use Modules\Inventory\Models\StockBalance;
@@ -23,43 +23,51 @@ class AutoReorderService
     public function suggestions(?string $branchId = null): array
     {
         $query = StockBalance::query()
-            ->with(['inventoryItem', 'branch'])
-            ->where('location_type', StockLocationType::Dispensary)
-            ->whereNull('department_id')
-            ->whereNull('stock_transfer_id')
-            ->where('reorder_point', '>', 0)
-            ->whereHas('inventoryItem', fn ($builder) => $builder->where('is_active', true))
-            ->orderBy('branch_id')
-            ->orderBy('inventory_item_id');
+            ->select([
+                'stock_balances.inventory_item_id',
+                'stock_balances.branch_id',
+                DB::raw('SUM(stock_balances.quantity_on_hand) as quantity_on_hand'),
+                DB::raw('MAX(stock_balances.reorder_point) as reorder_point'),
+                'inventory_items.name as item_name',
+                'branches.name as branch_name',
+            ])
+            ->join('inventory_items', 'inventory_items.id', '=', 'stock_balances.inventory_item_id')
+            ->join('branches', 'branches.id', '=', 'stock_balances.branch_id')
+            ->where('stock_balances.location_type', StockLocationType::Dispensary)
+            ->whereNull('stock_balances.department_id')
+            ->whereNull('stock_balances.stock_transfer_id')
+            ->where('inventory_items.is_active', true)
+            ->groupBy(
+                'stock_balances.inventory_item_id',
+                'stock_balances.branch_id',
+                'inventory_items.name',
+                'branches.name',
+            )
+            ->havingRaw('MAX(stock_balances.reorder_point) > 0')
+            ->havingRaw('SUM(stock_balances.quantity_on_hand) <= MAX(stock_balances.reorder_point)')
+            ->orderBy('stock_balances.branch_id')
+            ->orderBy('stock_balances.inventory_item_id');
 
         if ($branchId !== null) {
-            $query->where('branch_id', $branchId);
+            $query->where('stock_balances.branch_id', $branchId);
         }
 
         return $query
             ->get()
-            ->groupBy(fn (StockBalance $balance): string => $balance->inventory_item_id.'|'.$balance->branch_id)
-            ->map(function ($group): ?array {
-                /** @var Collection<int, StockBalance> $group */
-                $balance = $group->first();
-                $onHand = (int) $group->sum('quantity_on_hand');
-                $reorderPoint = (int) $group->max('reorder_point');
-
-                if ($reorderPoint <= 0 || $onHand > $reorderPoint) {
-                    return null;
-                }
+            ->map(function (object $row): array {
+                $onHand = (int) $row->quantity_on_hand;
+                $reorderPoint = (int) $row->reorder_point;
 
                 return [
-                    'inventory_item_id' => (string) $balance->inventory_item_id,
-                    'item_name' => $balance->inventoryItem?->name ?? __('Unknown item'),
-                    'branch_id' => (string) $balance->branch_id,
-                    'branch_name' => $balance->branch?->name ?? '—',
+                    'inventory_item_id' => (string) $row->inventory_item_id,
+                    'item_name' => (string) $row->item_name,
+                    'branch_id' => (string) $row->branch_id,
+                    'branch_name' => (string) $row->branch_name,
                     'quantity_on_hand' => $onHand,
                     'reorder_point' => $reorderPoint,
                     'quantity_to_order' => max(1, $reorderPoint - $onHand),
                 ];
             })
-            ->filter()
             ->values()
             ->all();
     }
