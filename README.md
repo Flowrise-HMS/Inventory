@@ -72,7 +72,7 @@ Enforced via `Feature::` in services and Filament navigation (`inventory_pharmac
 | `database/migrations/` | 14 schema migrations (including lot tracking). |
 | `database/factories/` | 5 model factories. |
 | `resources/views/pdf/` | Printable PDF templates. |
-| `tests/Feature/` | 20 test files (module suite: 88 passed / 1 skipped when verified 2026-07-10). |
+| `tests/Feature/` | 20 test files (run with `php artisan test Modules/Inventory/tests/ --compact`). |
 
 ## Dependencies
 

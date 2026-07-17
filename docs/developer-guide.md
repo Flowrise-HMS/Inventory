@@ -378,3 +378,7 @@ php artisan test Modules/Inventory/tests/ --compact
 - **Additional Filament resources** — Follow the existing pattern: `Schemas/`, `Tables/`, `Pages/` directories per resource, register in `InventoryPlugin`.
 - **Cross-module stock integration** — Implement `StockProviderContract` to bridge Inventory ledger with another module's stock system.
 - **New feature toggles** — Add boolean to `FeatureSettings`, gate Filament resources via `canView()`, gate service methods.
+
+## Remaining scope
+
+- **Scheduled reorder alerts** — `AutoReorderService` and PO **Generate from low stock** are built; email/scheduler notifications for low stock are not yet implemented.

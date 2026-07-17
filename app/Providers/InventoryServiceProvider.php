@@ -21,7 +21,7 @@ class InventoryServiceProvider extends ModuleServiceProvider
     protected string $name = 'Inventory';
 
     /**
-     * The lowercase version of the module name.
+     * Lowercase name of the module.
      */
     protected string $nameLower = 'inventory';
 
@@ -30,7 +30,9 @@ class InventoryServiceProvider extends ModuleServiceProvider
      *
      * @var string[]
      */
-    // protected array $commands = [];
+    protected array $commands = [
+        \Modules\Inventory\Console\CheckStockAlertsCommand::class,
+    ];
 
     /**
      * Provider classes to register.
