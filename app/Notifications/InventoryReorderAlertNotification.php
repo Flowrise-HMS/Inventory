@@ -6,6 +6,7 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
+use Modules\Core\Support\AppSettings;
 
 class InventoryReorderAlertNotification extends Notification implements ShouldQueue
 {
@@ -31,8 +32,8 @@ class InventoryReorderAlertNotification extends Notification implements ShouldQu
         $channels = ['database'];
 
         try {
-            $settings = app(\Modules\Core\Support\AppSettings::class)->notifications();
-            $billing = app(\Modules\Core\Support\AppSettings::class)->billing();
+            $settings = app(AppSettings::class)->notifications();
+            $billing = app(AppSettings::class)->billing();
 
             if ($settings->inventory_reorder_alerts_enabled) {
                 $channels[] = 'mail';

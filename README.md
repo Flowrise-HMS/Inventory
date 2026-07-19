@@ -1,6 +1,6 @@
 # Inventory module
 
-> **Status:** In progress — see [Module Status](../../docs/shared/module-status.md).
+> **Status:** Complete — see [Module Status](../../docs/shared/module-status.md).
 
 **In one sentence:** The Inventory module manages central dispensary stock, procurement (purchase orders), ward/department requisitions, inter-branch stock transfers, and stock adjustments so the hospital can track, move, and replenish non-pharmacy supplies and equipment alongside pharmacy-mediated items.
 
@@ -41,14 +41,15 @@ flowchart LR
 - **My ward requests** dashboard widget with slide-over create/view and fulfill shortcut.
 - **Pharmacy → Stock Items → Request from central store** for medication-linked replenishment.
 - **Auto-reorder draft PO** generation from dispensary low stock.
+- **Scheduled reorder alerts** — `inventory:check-stock-alerts` (daily/weekly/monthly via Core `NotificationSettings`) notifies `super_admin` users through `InventoryReorderAlertNotification`.
 
 ### Feature toggles
 
 Enforced via `Feature::` in services and Filament navigation (`inventory_pharmacy_procurement`, `inventory_ward_requisitions`, `inventory_inter_branch_transfers`).
 
-### Pending
+### Deferred
 
-- Scheduled reorder alerts (email/scheduler).
+- FHIR SupplyDelivery (Phase 11 interoperability work).
 
 ## How it works (simple)
 
@@ -57,22 +58,24 @@ Enforced via `Feature::` in services and Filament navigation (`inventory_pharmac
 3. **Fulfill requests**: Ward staff request items via requisition → supervisor approves → dispensary issues stock from Filament.
 4. **Move stock between sites**: Source branch ships → in-transit tracking → destination branch receives.
 5. **Reconcile**: Run stock adjustments when physical count differs from system; review the transaction ledger.
+6. **Stay ahead of shortages**: Enable reorder alerts under Core → Settings → Notification Settings; use **Generate from low stock** on purchase orders when needed.
 
 ## What is inside this folder
 
 | Path | Purpose |
 |------|---------|
-| `app/Models/` | 12 v1 models + `DocumentSequence` for numbering. |
+| `app/Models/` | 13 models including `DocumentSequence` for numbering. |
 | `app/Classes/Services/` | Ledger (lot/FEFO), PO, requisition, transfer, adjustment, issue-to-ward/pharmacy, auto-reorder, analytics, consumption, PDF generators. |
+| `app/Console/` | `CheckStockAlertsCommand` (`inventory:check-stock-alerts`). |
 | `app/Filament/Clusters/Inventory/` | Admin UI: cluster, 7 resources, analytics report page, 8 chart widgets. |
 | `app/Filament/Widgets/` | `MyWardRequestsWidget` for requestor dashboard. |
 | `app/Enums/` | Item categories, stock location types, transaction types, status enums. |
 | `app/Policies/` | Authorization rules (7 policies, Shield-standard permissions). |
-| `app/Providers/` | Module boot/register logic. |
+| `app/Providers/` | Module boot/register logic and reorder-alert scheduler registration. |
 | `database/migrations/` | 14 schema migrations (including lot tracking). |
 | `database/factories/` | 5 model factories. |
 | `resources/views/pdf/` | Printable PDF templates. |
-| `tests/Feature/` | 20 test files (run with `php artisan test Modules/Inventory/tests/ --compact`). |
+| `tests/` | 21 test files (run with `php artisan test Modules/Inventory/tests/ --compact`). |
 
 ## Dependencies
 
@@ -95,5 +98,6 @@ See [module status](../../docs/shared/module-status.md) for rollout state.
 - **Plugin:** `Modules\Inventory\Filament\InventoryPlugin`
 - **Pharmacy bridge:** `IssueToPharmacyService` calls `StockProviderContract::incrementWithReference()`; Pharmacy binds the contract to `StockService` in `PharmacyServiceProvider`
 - **Feature toggles:** `FeatureSettings` properties (`inventory_pharmacy_procurement`, `inventory_ward_requisitions`, `inventory_inter_branch_transfers`); enforced in services and Filament navigation via `Feature::`
+- **Reorder alerts:** `NotificationSettings` (`inventory_reorder_alerts_enabled`, `inventory_reorder_alerts_frequency`); scheduled in `InventoryServiceProvider`
 - **Document numbering:** `DocumentNumberingService` generates `PO-`, `REQ-`, `TRF-` prefixed numbers
 - **Running tests:** `php artisan test Modules/Inventory/tests/ --compact`

@@ -26,7 +26,7 @@ Key design rules:
 - **Location types** — Stock exists at `dispensary`, `ward`, or `in_transit` locations. There is no separate `pharmacy` location type in v1 — pharmacy stock flows through the `StockProviderContract` bridge instead.
 - **Document numbering** — All user-facing documents (POs, requisitions, transfers) get auto-generated numbers via `DocumentNumberingService`.
 
-## Models (12 v1 models + DocumentSequence)
+## Models (13 models including DocumentSequence)
 
 ### InventoryItem
 | Field | Type | Notes |
@@ -340,7 +340,7 @@ Feature::interBranchTransfersEnabled()
 
 ## Testing
 
-20 feature test files (module suite: 88 passed / 1 skipped when verified 2026-07-10):
+21 test files (Feature + Unit):
 
 | Test file | What it tests |
 |-----------|---------------|
@@ -355,6 +355,7 @@ Feature::interBranchTransfersEnabled()
 | `IssueToWardServiceTest` | Ward issue from approved requisitions |
 | `FeatureToggleTest` | Services blocked when toggles disabled |
 | `AutoReorderServiceTest` | Draft PO from low stock |
+| `CheckStockAlertsCommandTest` | Scheduler registration, settings gates, notification on low stock |
 | `PdfGenerationTest` | All five PDF document types |
 | `InventoryReportTest` | Analytics report page and CSV export |
 | `MyWardRequestsWidgetTest` | Requestor dashboard widget |
@@ -381,4 +382,6 @@ php artisan test Modules/Inventory/tests/ --compact
 
 ## Remaining scope
 
-- **Scheduled reorder alerts** — `AutoReorderService` and PO **Generate from low stock** are built; email/scheduler notifications for low stock are not yet implemented.
+- **FHIR SupplyDelivery** — Deferred to Phase 11 interoperability work (InventoryItem read/search is already exposed via the FHIR module).
+
+Scheduled reorder alerts are built: `inventory:check-stock-alerts`, scheduler registration in `InventoryServiceProvider`, and Core `NotificationSettings` (`inventory_reorder_alerts_enabled`, `inventory_reorder_alerts_frequency`).

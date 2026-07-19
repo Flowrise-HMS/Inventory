@@ -2,9 +2,9 @@
 
 namespace Modules\Inventory\Console;
 
+use App\Models\User;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Notification as FacadeNotification;
-use App\Models\User;
 use Modules\Inventory\Classes\Services\AutoReorderService;
 use Modules\Inventory\Notifications\InventoryReorderAlertNotification;
 

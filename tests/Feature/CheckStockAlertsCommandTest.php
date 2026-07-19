@@ -2,16 +2,16 @@
 
 namespace Modules\Inventory\Tests\Feature;
 
+use App\Models\User;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\Notification;
-use App\Models\User;
-use Spatie\Permission\Models\Role;
 use Modules\Core\Models\Branch;
 use Modules\Core\Settings\NotificationSettings;
 use Modules\Inventory\Classes\Services\StockLedgerService;
 use Modules\Inventory\Models\InventoryItem;
 use Modules\Inventory\Notifications\InventoryReorderAlertNotification;
+use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
 class CheckStockAlertsCommandTest extends TestCase
