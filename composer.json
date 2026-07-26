@@ -1,18 +1,29 @@
 {
-    "name": "nwidart/inventory",
-    "description": "",
+    "name": "flowrise-hms/inventory",
+    "type": "laravel-module",
+    "description": "Inventory management module for FlowRise HMS providing stock tracking, expiry management, and supply chain operations.",
+    "license": "MIT",
     "authors": [
         {
-            "name": "Nicolas Widart",
-            "email": "n.widart@gmail.com"
+            "name": "Flowrise Digital",
+            "homepage": "https://github.com/Flowrise-HMS",
+            "email": "flowrisedigitals@gmail.com"
+        },
+        {
+            "name": "Mushe Abdul-Hakim",
+            "email": "musheabdulhakim99@gmail.com",
+            "homepage": "https://github.com/musheabdulhakim",
+            "role": "Lead Developer"
         }
     ],
+    "require": {
+        "php": "^8.4",
+        "flowrise-hms/core": "dev-main"
+    },
     "extra": {
         "laravel": {
             "providers": [],
-            "aliases": {
-
-            }
+            "aliases": {}
         }
     },
     "autoload": {
@@ -26,5 +37,7 @@
         "psr-4": {
             "Modules\\Inventory\\Tests\\": "tests/"
         }
-    }
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true
 }
