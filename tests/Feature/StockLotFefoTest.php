@@ -155,4 +155,184 @@ class StockLotFefoTest extends TestCase
             ->where('department_id', $department->id)
             ->value('quantity_on_hand'));
     }
+
+    /**
+     * FEFO sorts by earliest expiry, so an expired lot sorts first and would be
+     * the first thing dispensed unless it is excluded outright.
+     */
+    public function test_expired_lots_are_never_dispensed(): void
+    {
+        $this->actingAs(User::factory()->create());
+
+        $branch = Branch::factory()->create();
+        $item = InventoryItem::factory()->create();
+        $ledger = app(StockLedgerService::class);
+
+        $this->receiveLot($item->id, $branch->id, 10, 'EXPIRED', now()->subDay()->toDateString());
+        $this->receiveLot($item->id, $branch->id, 10, 'VALID', now()->addYear()->toDateString());
+
+        $allocations = $ledger->decrementFefo(
+            itemId: $item->id,
+            branchId: $branch->id,
+            locationType: StockLocationType::Dispensary,
+            departmentId: null,
+            stockTransferId: null,
+            qty: 6,
+            transactionType: TransactionType::Issue,
+        );
+
+        $this->assertCount(1, $allocations);
+        $this->assertSame('VALID', $allocations[0]['lot_number']);
+        $this->assertSame(6, $allocations[0]['quantity']);
+
+        $this->assertSame(10, $this->onHand($item->id, 'EXPIRED'), 'Expired lot must be left untouched.');
+        $this->assertSame(4, $this->onHand($item->id, 'VALID'));
+    }
+
+    public function test_decrement_fails_closed_when_only_expired_stock_remains(): void
+    {
+        $this->actingAs(User::factory()->create());
+
+        $branch = Branch::factory()->create();
+        $item = InventoryItem::factory()->create();
+
+        $this->receiveLot($item->id, $branch->id, 50, 'EXPIRED', now()->subMonth()->toDateString());
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/expired/i');
+
+        app(StockLedgerService::class)->decrementFefo(
+            itemId: $item->id,
+            branchId: $branch->id,
+            locationType: StockLocationType::Dispensary,
+            departmentId: null,
+            stockTransferId: null,
+            qty: 1,
+            transactionType: TransactionType::Issue,
+        );
+    }
+
+    public function test_lot_expiring_today_is_still_dispensable(): void
+    {
+        $this->actingAs(User::factory()->create());
+
+        $branch = Branch::factory()->create();
+        $item = InventoryItem::factory()->create();
+
+        $this->receiveLot($item->id, $branch->id, 5, 'TODAY', now()->toDateString());
+
+        $allocations = app(StockLedgerService::class)->decrementFefo(
+            itemId: $item->id,
+            branchId: $branch->id,
+            locationType: StockLocationType::Dispensary,
+            departmentId: null,
+            stockTransferId: null,
+            qty: 5,
+            transactionType: TransactionType::Issue,
+        );
+
+        $this->assertCount(1, $allocations);
+        $this->assertSame('TODAY', $allocations[0]['lot_number']);
+    }
+
+    public function test_lots_without_an_expiry_date_remain_dispensable(): void
+    {
+        $this->actingAs(User::factory()->create());
+
+        $branch = Branch::factory()->create();
+        $item = InventoryItem::factory()->create();
+
+        $this->receiveLot($item->id, $branch->id, 7, 'NO-EXPIRY', null);
+
+        $allocations = app(StockLedgerService::class)->decrementFefo(
+            itemId: $item->id,
+            branchId: $branch->id,
+            locationType: StockLocationType::Dispensary,
+            departmentId: null,
+            stockTransferId: null,
+            qty: 7,
+            transactionType: TransactionType::Issue,
+        );
+
+        $this->assertCount(1, $allocations);
+        $this->assertSame('NO-EXPIRY', $allocations[0]['lot_number']);
+    }
+
+    /**
+     * Writing expired stock off is exactly an adjustment, so adjustments must
+     * keep the access that issuing and shipping lose.
+     */
+    public function test_adjustments_can_still_write_off_expired_stock(): void
+    {
+        $this->actingAs(User::factory()->create());
+
+        $branch = Branch::factory()->create();
+        $item = InventoryItem::factory()->create();
+
+        $this->receiveLot($item->id, $branch->id, 12, 'EXPIRED', now()->subWeek()->toDateString());
+
+        $allocations = app(StockLedgerService::class)->decrementFefo(
+            itemId: $item->id,
+            branchId: $branch->id,
+            locationType: StockLocationType::Dispensary,
+            departmentId: null,
+            stockTransferId: null,
+            qty: 12,
+            transactionType: TransactionType::Adjust,
+            reference: null,
+        );
+
+        $this->assertCount(1, $allocations);
+        $this->assertSame('EXPIRED', $allocations[0]['lot_number']);
+        $this->assertSame(0, $this->onHand($item->id, 'EXPIRED'));
+    }
+
+    public function test_transfers_may_not_ship_expired_stock(): void
+    {
+        $this->actingAs(User::factory()->create());
+
+        $branch = Branch::factory()->create();
+        $item = InventoryItem::factory()->create();
+
+        $this->receiveLot($item->id, $branch->id, 8, 'EXPIRED', now()->subDay()->toDateString());
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/expired/i');
+
+        app(StockLedgerService::class)->decrementFefo(
+            itemId: $item->id,
+            branchId: $branch->id,
+            locationType: StockLocationType::Dispensary,
+            departmentId: null,
+            stockTransferId: null,
+            qty: 1,
+            transactionType: TransactionType::TransferShip,
+            reference: null,
+        );
+    }
+
+    private function receiveLot(string $itemId, string $branchId, int $qty, string $lot, ?string $expiry): void
+    {
+        app(StockLedgerService::class)->lockAndIncrement(
+            itemId: $itemId,
+            branchId: $branchId,
+            locationType: StockLocationType::Dispensary,
+            departmentId: null,
+            stockTransferId: null,
+            qty: $qty,
+            transactionType: TransactionType::Receive,
+            reference: null,
+            lotNumber: $lot,
+            expiryDate: $expiry,
+        );
+    }
+
+    private function onHand(string $itemId, string $lot): int
+    {
+        return (int) StockBalance::query()
+            ->where('inventory_item_id', $itemId)
+            ->where('lot_number', $lot)
+            ->where('location_type', StockLocationType::Dispensary)
+            ->value('quantity_on_hand');
+    }
 }

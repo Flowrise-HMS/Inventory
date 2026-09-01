@@ -38,6 +38,19 @@ enum TransactionType: string implements HasColor, HasLabel
         };
     }
 
+    /**
+     * Whether this movement is allowed to draw down expired lots.
+     *
+     * Only stock adjustments may: writing expired stock off is precisely an
+     * adjustment. Issuing, consuming and shipping must never reach an expired
+     * lot, which FEFO would otherwise select first because it sorts by earliest
+     * expiry.
+     */
+    public function mayConsumeExpiredStock(): bool
+    {
+        return $this === self::Adjust;
+    }
+
     public static function values(): array
     {
         return array_column(self::cases(), 'value');

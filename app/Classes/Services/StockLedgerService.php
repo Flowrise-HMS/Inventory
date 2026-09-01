@@ -139,13 +139,25 @@ class StockLedgerService
             $remaining = $qty;
             $allocations = [];
 
-            $balances = StockBalance::query()
+            $today = now()->toDateString();
+            $excludeExpired = ! $transactionType->mayConsumeExpiredStock();
+
+            $candidates = StockBalance::query()
                 ->where('inventory_item_id', $itemId)
                 ->where('branch_id', $branchId)
                 ->where('location_type', $locationType->value)
                 ->where('department_id', $departmentId)
                 ->where('stock_transfer_id', $stockTransferId)
-                ->where('quantity_on_hand', '>', 0)
+                ->where('quantity_on_hand', '>', 0);
+
+            // FEFO orders by earliest expiry, so without this filter an expired
+            // lot sorts FIRST and is the first thing issued. Lots with no expiry
+            // date are non-expiring and stay eligible (sorted last). Adjustments
+            // keep access to expired lots so they can still be written off.
+            $balances = (clone $candidates)
+                ->when($excludeExpired, fn ($query) => $query->where(
+                    fn ($inner) => $inner->whereNull('expiry_date')->orWhere('expiry_date', '>=', $today)
+                ))
                 ->orderByRaw('CASE WHEN expiry_date IS NULL THEN 1 ELSE 0 END')
                 ->orderBy('expiry_date')
                 ->orderBy('created_at')
@@ -155,6 +167,22 @@ class StockLedgerService
             $available = (int) $balances->sum('quantity_on_hand');
 
             if ($available < $qty) {
+                $expired = $excludeExpired
+                    ? (int) (clone $candidates)
+                        ->whereNotNull('expiry_date')
+                        ->where('expiry_date', '<', $today)
+                        ->sum('quantity_on_hand')
+                    : 0;
+
+                if ($expired > 0) {
+                    throw new \RuntimeException(sprintf(
+                        'Insufficient unexpired stock on hand: %d available, %d required (%d expired unit(s) excluded).',
+                        $available,
+                        $qty,
+                        $expired,
+                    ));
+                }
+
                 throw new \RuntimeException('Insufficient stock on hand.');
             }
 
