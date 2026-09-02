@@ -3,7 +3,9 @@
 namespace Modules\Inventory\Filament\Clusters\Inventory\Resources\StockBalances\Pages;
 
 use Filament\Resources\Pages\ListRecords;
+use Modules\Core\Filament\Support\SuperAdminExportAction;
 use Modules\Inventory\Filament\Clusters\Inventory\Resources\StockBalances\StockBalanceResource;
+use Modules\Inventory\Filament\Exports\StockBalanceExporter;
 
 class ListStockBalances extends ListRecords
 {
@@ -11,6 +13,8 @@ class ListStockBalances extends ListRecords
 
     protected function getHeaderActions(): array
     {
-        return [];
+        return [
+            SuperAdminExportAction::make(StockBalanceExporter::class),
+        ];
     }
 }
