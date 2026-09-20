@@ -6,6 +6,7 @@ use BezhanSalleh\FilamentShield\Traits\HasPageShield;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
 use Filament\Widgets\WidgetConfiguration;
+use Modules\Core\Enums\NavigationGroup;
 use Modules\Core\Models\Branch;
 use Modules\Inventory\Classes\Services\InventoryAnalyticsService;
 use Modules\Inventory\Data\InventoryReportCriteria;
@@ -26,6 +27,8 @@ class InventoryReport extends Page
     protected static ?string $cluster = InventoryCluster::class;
 
     protected static string|\BackedEnum|null $navigationIcon = Heroicon::OutlinedPresentationChartBar;
+
+    protected static string|\UnitEnum|null $navigationGroup = NavigationGroup::REPORTS;
 
     protected static ?string $navigationLabel = 'Inventory report';
 
