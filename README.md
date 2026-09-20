@@ -1,6 +1,6 @@
 # Inventory module
 
-> **Status:** Complete — see [Module Status](../../docs/shared/module-status.md).
+> **Status:** Complete — see [Module Status](../../docs/shared/module-status.md). Verified against code on 2026-09-20. Sidebar: **Operations → Inventory** (`/inventory`).
 
 **In one sentence:** The Inventory module manages central dispensary stock, procurement (purchase orders), ward/department requisitions, inter-branch stock transfers, and stock adjustments so the hospital can track, move, and replenish non-pharmacy supplies and equipment alongside pharmacy-mediated items.
 
@@ -31,15 +31,15 @@ flowchart LR
 ### Built (services + Filament)
 
 - Maintain an **inventory item catalog** (supplies, consumables, equipment, general items) with optional medication linking and initial dispensary stock on create.
-- Track **stock balances** across dispensary, ward, and in-transit locations per branch, including **lot tracking** with **FEFO** ledger decrement.
+- Track **stock balances** across dispensary, ward, and in-transit locations per branch, including **lot tracking** with **FEFO** ledger decrement (expired lots are skipped on dispense/issue and can be written off through adjustments).
 - Create and manage **purchase orders** — draft, submit, receive (partial quantities via modal), close.
 - **Approve, decline, issue, or close** ward/department requisitions from Filament (issue on View → Items; **Fulfill items** shortcut on list/widget).
 - Run **inter-branch stock transfers** — create, ship, receive (partial), close with in-transit write-off.
 - **Adjust stock** on any balance (Stock Balances → View → Adjust stock).
 - View the **complete inventory ledger** and **analytics report** (8 chart widgets, CSV export).
 - **Print documents** — GRN, Requisition Vouchers, Stock Transfer Notes, Adjustment Vouchers, and Stock Cards as PDF.
-- **My ward requests** dashboard widget with slide-over create/view and fulfill shortcut.
-- **Pharmacy → Stock Items → Request from central store** for medication-linked replenishment.
+- **My ward requests** dashboard widget (lazy table, rendered after the Patient widgets) with slide-over create/view and fulfill shortcut.
+- **Pharmacy → Stock Items → Request from central store** for medication-linked replenishment (only rendered when an active `InventoryItem` has that `medication_id` and pharmacy procurement is enabled).
 - **Auto-reorder draft PO** generation from dispensary low stock.
 - **Scheduled reorder alerts** — `inventory:check-stock-alerts` (daily/weekly/monthly via Core `NotificationSettings`) notifies `super_admin` users through `InventoryReorderAlertNotification`.
 
@@ -58,7 +58,7 @@ Enforced via `Feature::` in services and Filament navigation (`inventory_pharmac
 3. **Fulfill requests**: Ward staff request items via requisition → supervisor approves → dispensary issues stock from Filament.
 4. **Move stock between sites**: Source branch ships → in-transit tracking → destination branch receives.
 5. **Reconcile**: Run stock adjustments when physical count differs from system; review the transaction ledger.
-6. **Stay ahead of shortages**: Enable reorder alerts under Core → Settings → Notification Settings; use **Generate from low stock** on purchase orders when needed.
+6. **Stay ahead of shortages**: Enable reorder alerts under Administration → System → Notifications (Inventory section); use **Generate from low stock** on purchase orders when needed.
 
 ## What is inside this folder
 
@@ -94,10 +94,11 @@ See [module status](../../docs/shared/module-status.md) for rollout state.
 
 - **Namespace:** `Modules\Inventory\...`
 - **Service provider:** `Modules\Inventory\Providers\InventoryServiceProvider`
-- **Filament cluster:** `Modules\Inventory\Filament\Clusters\Inventory\InventoryCluster`
+- **Filament cluster:** `Modules\Inventory\Filament\Clusters\Inventory\InventoryCluster` (sidebar group Operations; resources use the in-cluster `NavigationGroup::CLINICAL` sub-group, the report page has none); resources InventoryItems, StockBalances, InventoryTransactions, Requisitions, PurchaseOrders, StockTransfers, Suppliers; page InventoryReport; dashboard widget `MyWardRequestsWidget`; exporter `StockBalanceExporter` (super admins)
+- **Permissions:** Shield abilities per model plus `Approve Requisition`, `Issue Requisition`, `adjust_stock`; custom `print_inventory_document`, `download_inventory_document`, `view_inventory_report` (`config/config.php`); no seeder grants them to roles other than `super_admin`
 - **Plugin:** `Modules\Inventory\Filament\InventoryPlugin`
 - **Pharmacy bridge:** `IssueToPharmacyService` calls `StockProviderContract::incrementWithReference()`; Pharmacy binds the contract to `StockService` in `PharmacyServiceProvider`
 - **Feature toggles:** `FeatureSettings` properties (`inventory_pharmacy_procurement`, `inventory_ward_requisitions`, `inventory_inter_branch_transfers`); enforced in services and Filament navigation via `Feature::`
 - **Reorder alerts:** `NotificationSettings` (`inventory_reorder_alerts_enabled`, `inventory_reorder_alerts_frequency`); scheduled in `InventoryServiceProvider`
 - **Document numbering:** `DocumentNumberingService` generates `PO-`, `REQ-`, `TRF-` prefixed numbers
-- **Running tests:** `php artisan test Modules/Inventory/tests/ --compact`
+- **Running tests:** `php artisan test --compact Modules/Inventory/tests` (21 test files; 14 migrations, 13 models, 5 factories, 7 policies)
