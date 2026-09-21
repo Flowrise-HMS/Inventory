@@ -3,11 +3,13 @@
 namespace Modules\Inventory\Models;
 
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
+use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Modules\Core\Models\Branch;
+use Modules\Inventory\Database\Factories\InventoryTransactionFactory;
 use Modules\Inventory\Enums\TransactionType;
 
 class InventoryTransaction extends Model
@@ -40,6 +42,11 @@ class InventoryTransaction extends Model
         'transaction_type' => TransactionType::class,
         'expiry_date' => 'date',
     ];
+
+    protected static function newFactory(): Factory
+    {
+        return InventoryTransactionFactory::new();
+    }
 
     public function inventoryItem(): BelongsTo
     {

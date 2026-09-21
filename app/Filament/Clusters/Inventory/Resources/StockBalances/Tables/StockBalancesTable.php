@@ -7,6 +7,7 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Modules\Inventory\Enums\StockLocationType;
+use Modules\Inventory\Filament\Actions\SetReorderPointAction;
 
 class StockBalancesTable
 {
@@ -49,6 +50,7 @@ class StockBalancesTable
             ])
             ->recordActions([
                 ViewAction::make(),
+                SetReorderPointAction::make(),
             ]);
     }
 }

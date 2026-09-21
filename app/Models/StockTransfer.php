@@ -4,11 +4,13 @@ namespace Modules\Inventory\Models;
 
 use App\Models\User;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
+use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Modules\Core\Models\Branch;
+use Modules\Inventory\Database\Factories\StockTransferFactory;
 use Modules\Inventory\Enums\StockTransferStatus;
 
 class StockTransfer extends Model
@@ -37,6 +39,11 @@ class StockTransfer extends Model
         'shipped_at' => 'datetime',
         'received_at' => 'datetime',
     ];
+
+    protected static function newFactory(): Factory
+    {
+        return StockTransferFactory::new();
+    }
 
     public function items(): HasMany
     {

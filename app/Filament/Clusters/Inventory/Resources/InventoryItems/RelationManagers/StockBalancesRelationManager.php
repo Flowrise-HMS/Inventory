@@ -9,6 +9,7 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Modules\Inventory\Enums\StockLocationType;
+use Modules\Inventory\Filament\Actions\SetReorderPointAction;
 use Modules\Inventory\Filament\Clusters\Inventory\Resources\StockBalances\StockBalanceResource;
 
 class StockBalancesRelationManager extends RelationManager
@@ -52,6 +53,7 @@ class StockBalancesRelationManager extends RelationManager
             ->recordActions([
                 ViewAction::make()
                     ->url(fn ($record): string => StockBalanceResource::getUrl('view', ['record' => $record])),
+                SetReorderPointAction::make(),
             ]);
     }
 }

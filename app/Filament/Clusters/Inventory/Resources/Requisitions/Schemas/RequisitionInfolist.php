@@ -6,6 +6,7 @@ use Filament\Infolists\Components\TextEntry;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 use Modules\Inventory\Enums\RequisitionStatus;
+use Modules\Inventory\Models\Requisition;
 
 class RequisitionInfolist
 {
@@ -66,8 +67,10 @@ class RequisitionInfolist
                     ->schema([
                         TextEntry::make('items_list')
                             ->label('Requisition Items')
-                            ->state(function (Schema $schema): array {
-                                $record = $schema->getRecord();
+                            ->state(function (?Requisition $record): array {
+                                if ($record === null) {
+                                    return [];
+                                }
 
                                 return $record->items->map(fn ($item) => sprintf(
                                     '%s — Requested: %d, Approved: %d, Issued: %d',

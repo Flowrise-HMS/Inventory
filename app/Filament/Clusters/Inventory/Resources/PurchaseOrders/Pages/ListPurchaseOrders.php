@@ -5,14 +5,14 @@ namespace Modules\Inventory\Filament\Clusters\Inventory\Resources\PurchaseOrders
 use Filament\Actions\Action;
 use Filament\Actions\CreateAction;
 use Filament\Forms\Components\Checkbox;
+use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ListRecords;
-use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Context;
 use Modules\Core\Models\Branch;
+use Modules\Core\Support\CurrentBranch;
 use Modules\Inventory\Classes\Services\AutoReorderService;
 use Modules\Inventory\Filament\Clusters\Inventory\Resources\PurchaseOrders\PurchaseOrderResource;
 use Modules\Inventory\Models\Supplier;
@@ -79,7 +79,8 @@ class ListPurchaseOrders extends ListRecords
                         Checkbox::make('selected')
                             ->label(__('Include'))
                             ->default(true),
-                        TextInput::make('inventory_item_id')->hidden(),
+                        // A hidden TextInput is not dehydrated; Hidden keeps the id in the payload.
+                        Hidden::make('inventory_item_id'),
                         TextInput::make('item_label')
                             ->label(__('Item'))
                             ->disabled()
@@ -132,8 +133,6 @@ class ListPurchaseOrders extends ListRecords
 
     protected function resolveBranchId(): ?string
     {
-        $branchId = Context::get('current_branch_id', Auth::user()?->branch_id);
-
-        return $branchId !== null ? (string) $branchId : null;
+        return CurrentBranch::id();
     }
 }
