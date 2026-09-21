@@ -6,11 +6,12 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
+use Modules\Core\Notifications\Concerns\ResolvesNotificationChannels;
 use Modules\Core\Support\AppSettings;
 
 class InventoryReorderAlertNotification extends Notification implements ShouldQueue
 {
-    use Queueable;
+    use Queueable, ResolvesNotificationChannels;
 
     /**
      * @param  list<array{
@@ -29,24 +30,17 @@ class InventoryReorderAlertNotification extends Notification implements ShouldQu
 
     public function via(object $notifiable): array
     {
-        $channels = ['database'];
-
         try {
-            $settings = app(AppSettings::class)->notifications();
-            $billing = app(AppSettings::class)->billing();
-
-            if ($settings->inventory_reorder_alerts_enabled) {
-                $channels[] = 'mail';
-
-                if ($billing->sms_enabled && ($notifiable->phone ?? null)) {
-                    $channels[] = 'sms';
-                }
-            }
+            $enabled = (bool) app(AppSettings::class)->notifications()->inventory_reorder_alerts_enabled;
         } catch (\Throwable) {
-            $channels[] = 'mail';
+            $enabled = true;
         }
 
-        return $channels;
+        if (! $enabled) {
+            return $this->channelsFor($notifiable, ['database']);
+        }
+
+        return $this->settingsChannels($notifiable, 'inventory_reorder_alerts_enabled', 'inventory_reorder_alerts_enabled', wanted: ['database', 'mail', 'sms']);
     }
 
     public function toMail(object $notifiable): MailMessage
