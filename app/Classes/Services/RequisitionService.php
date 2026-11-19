@@ -3,8 +3,11 @@
 namespace Modules\Inventory\Classes\Services;
 
 use App\Models\User;
+use Filament\Notifications\Notification;
 use Illuminate\Support\Facades\Auth;
+use Modules\Core\Classes\Services\WardAccessService;
 use Modules\Core\Models\Department;
+use Modules\Core\Models\Location;
 use Modules\Inventory\Classes\Support\Feature;
 use Modules\Inventory\Enums\RequisitionStatus;
 use Modules\Inventory\Events\RequisitionCreated;
@@ -17,6 +20,7 @@ class RequisitionService
         protected DocumentNumberingService $numbering,
         protected IssueToWardService $issueToWard,
         protected IssueToPharmacyService $issueToPharmacy,
+        protected WardAccessService $wardAccess,
     ) {}
 
     public function create(array $data): Requisition
@@ -31,12 +35,31 @@ class RequisitionService
             ->where('id', $data['department_id'])
             ->firstOrFail();
 
+        $locationId = $data['location_id'] ?? null;
+        $ward = filled($locationId)
+            ? Location::withoutGlobalScope('branch')->where('branch_id', $branchId)->find($locationId)
+            : null;
+
+        $requestorId = $data['requestor_id'] ?? Auth::id();
+        $requestor = $requestorId ? User::find($requestorId) : null;
+
+        $requiresEndorsement = $ward !== null
+            && (bool) config('inventory.require_ward_incharge_endorsement', false)
+            && ($requestor === null || ! $this->wardAccess->isWardIncharge($requestor, $ward));
+
+        $initialStatus = $requiresEndorsement
+            ? RequisitionStatus::PendingIncharge->value
+            : RequisitionStatus::Pending->value;
+
         $requisition = Requisition::create([
             'requisition_number' => $this->numbering->generate('REQ', $branchId),
-            'requestor_id' => $data['requestor_id'] ?? Auth::id(),
+            'requestor_id' => $requestorId,
             'department_id' => $data['department_id'],
+            'location_id' => $ward?->id,
             'branch_id' => $branchId,
-            'status' => 'pending',
+            'status' => $initialStatus,
+            'endorsed_by' => (! $requiresEndorsement && $ward !== null) ? $requestorId : null,
+            'endorsed_at' => (! $requiresEndorsement && $ward !== null) ? now() : null,
             'notes' => $data['notes'] ?? null,
         ]);
 
@@ -50,9 +73,37 @@ class RequisitionService
 
         $requisition = $requisition->load('items');
 
-        RequisitionCreated::dispatch($requisition);
+        if ($requiresEndorsement && $ward !== null) {
+            $incharges = $this->wardAccess->inchargeUsersForWard($ward);
+            if ($incharges->isNotEmpty()) {
+                Notification::make()
+                    ->title(__('Ward requisition awaiting your endorsement'))
+                    ->body(sprintf('%s — %s', $requisition->requisition_number, $ward->name))
+                    ->info()
+                    ->sendToDatabase($incharges);
+            }
+        } else {
+            RequisitionCreated::dispatch($requisition);
+        }
 
         return $requisition;
+    }
+
+    public function endorse(Requisition $requisition, ?User $endorser = null): void
+    {
+        if ($requisition->status !== RequisitionStatus::PendingIncharge) {
+            throw new \RuntimeException('Only requisitions awaiting ward incharge endorsement can be endorsed.');
+        }
+
+        $endorser ??= Auth::user();
+
+        $requisition->update([
+            'status' => RequisitionStatus::Pending,
+            'endorsed_by' => $endorser?->id,
+            'endorsed_at' => now(),
+        ]);
+
+        RequisitionCreated::dispatch($requisition->fresh('items'));
     }
 
     public function approve(Requisition $requisition, ?array $approvedQuantities = null): void

@@ -36,6 +36,7 @@ class IssueToWardService
                 qty: $qty,
                 transactionType: TransactionType::Issue,
                 reference: $requisitionItem,
+                toLocationId: $requisition->location_id,
             );
 
             $requisitionItem->increment('quantity_issued', $qty);

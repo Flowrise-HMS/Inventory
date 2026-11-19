@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Modules\Core\Models\Branch;
 use Modules\Core\Models\Department;
+use Modules\Core\Models\Location;
 use Modules\Core\Models\Unit;
 use Modules\Inventory\Enums\StockLocationType;
 
@@ -22,6 +23,7 @@ class StockBalance extends Model
         'branch_id',
         'location_type',
         'department_id',
+        'location_id',
         'stock_transfer_id',
         'lot_number',
         'expiry_date',
@@ -50,6 +52,11 @@ class StockBalance extends Model
     public function department(): BelongsTo
     {
         return $this->belongsTo(Department::class);
+    }
+
+    public function location(): BelongsTo
+    {
+        return $this->belongsTo(Location::class, 'location_id');
     }
 
     public function unit(): BelongsTo

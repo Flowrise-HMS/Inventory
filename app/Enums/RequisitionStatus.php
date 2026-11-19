@@ -7,6 +7,7 @@ use Filament\Support\Contracts\HasLabel;
 
 enum RequisitionStatus: string implements HasColor, HasLabel
 {
+    case PendingIncharge = 'pending_incharge';
     case Pending = 'pending';
     case Approved = 'approved';
     case PartiallyIssued = 'partially_issued';
@@ -18,6 +19,7 @@ enum RequisitionStatus: string implements HasColor, HasLabel
     public function getLabel(): string
     {
         return match ($this) {
+            self::PendingIncharge => 'Pending Incharge',
             self::Pending => 'Pending',
             self::Approved => 'Approved',
             self::PartiallyIssued => 'Partially Issued',
@@ -31,6 +33,7 @@ enum RequisitionStatus: string implements HasColor, HasLabel
     public function getColor(): string
     {
         return match ($this) {
+            self::PendingIncharge => 'info',
             self::Pending => 'gray',
             self::Approved => 'success',
             self::PartiallyIssued => 'warning',

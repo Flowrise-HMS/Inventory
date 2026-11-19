@@ -15,9 +15,11 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Widgets\TableWidget as BaseWidget;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Auth;
+use Modules\Core\Classes\Services\WardAccessService;
 use Modules\Core\Filament\Concerns\InteractsWithWidgetShield;
 use Modules\Core\Models\Branch;
 use Modules\Core\Models\Department;
+use Modules\Core\Models\Location;
 use Modules\Inventory\Classes\Services\RequisitionService;
 use Modules\Inventory\Enums\RequisitionStatus;
 use Modules\Inventory\Filament\Clusters\Inventory\Resources\Requisitions\RequisitionResource;
@@ -33,13 +35,24 @@ class MyWardRequestsWidget extends BaseWidget
 
     protected int|string|array $columnSpan = 'full';
 
-    protected static ?string $heading = 'My ward requests';
+    protected static ?string $heading = 'Ward requisitions';
 
     protected function getTableQuery(): Builder
     {
+        $user = Auth::user();
+        $inchargeWardIds = $user !== null
+            ? app(WardAccessService::class)->wardsForIncharge($user)->pluck('id')->all()
+            : [];
+
         return Requisition::query()
-            ->with(['items.inventoryItem', 'department', 'branch', 'requestor', 'approvedBy', 'issuedBy'])
-            ->where('requestor_id', Auth::id())
+            ->with(['items.inventoryItem', 'department', 'location', 'branch', 'requestor', 'endorsedBy', 'approvedBy', 'issuedBy'])
+            ->where(function (Builder $query) use ($inchargeWardIds): void {
+                $query->where('requestor_id', Auth::id());
+
+                if ($inchargeWardIds !== []) {
+                    $query->orWhereIn('location_id', $inchargeWardIds);
+                }
+            })
             ->latest();
     }
 
@@ -49,6 +62,9 @@ class MyWardRequestsWidget extends BaseWidget
             TextColumn::make('requisition_number')
                 ->label(__('Requisition #'))
                 ->searchable(),
+            TextColumn::make('location.name')
+                ->label(__('Ward'))
+                ->placeholder('—'),
             TextColumn::make('department.name')
                 ->label(__('Department')),
             TextColumn::make('status')
@@ -97,6 +113,29 @@ class MyWardRequestsWidget extends BaseWidget
                     RequisitionStatus::Approved,
                     RequisitionStatus::PartiallyIssued,
                 ], true)),
+            Action::make('endorse')
+                ->label(__('Endorse'))
+                ->icon('heroicon-m-check-badge')
+                ->color('success')
+                ->requiresConfirmation()
+                ->modalHeading(__('Endorse ward requisition'))
+                ->modalDescription(fn (Requisition $record) => __('Endorse :number and forward it to Store / Inventory for approval?', ['number' => $record->requisition_number]))
+                ->visible(function (Requisition $record): bool {
+                    $user = Auth::user();
+
+                    return $record->status === RequisitionStatus::PendingIncharge
+                        && $user !== null
+                        && filled($record->location_id)
+                        && app(WardAccessService::class)->isWardIncharge($user, $record->location_id);
+                })
+                ->action(function (Requisition $record): void {
+                    app(RequisitionService::class)->endorse($record);
+
+                    Notification::make()
+                        ->success()
+                        ->title(__('Requisition endorsed and forwarded'))
+                        ->send();
+                }),
             Action::make('cancel')
                 ->label(__('Cancel'))
                 ->icon('heroicon-m-x-circle')
@@ -104,7 +143,10 @@ class MyWardRequestsWidget extends BaseWidget
                 ->requiresConfirmation()
                 ->modalHeading(__('Cancel requisition'))
                 ->modalDescription(fn (Requisition $record) => __('Are you sure you want to cancel :number? This cannot be undone.', ['number' => $record->requisition_number]))
-                ->visible(fn (Requisition $record): bool => $record->status === RequisitionStatus::Pending)
+                ->visible(fn (Requisition $record): bool => in_array($record->status, [
+                    RequisitionStatus::Pending,
+                    RequisitionStatus::PendingIncharge,
+                ], true))
                 ->authorize(fn (Requisition $record): bool => Auth::id() === $record->requestor_id)
                 ->action(function (Requisition $record): void {
                     app(RequisitionService::class)->cancel($record);
@@ -146,6 +188,16 @@ class MyWardRequestsWidget extends BaseWidget
                         ->required()
                         ->disabled(fn (Get $get): bool => blank($get('branch_id')))
                         ->helperText(fn (Get $get) => blank($get('branch_id')) ? __('Select a branch first.') : null),
+                    Select::make('location_id')
+                        ->label(__('Ward (Optional)'))
+                        ->options(fn (Get $get): array => $get('branch_id')
+                            ? Location::withoutGlobalScope('branch')->wards()->active()->where('branch_id', $get('branch_id'))->orderBy('name')->pluck('name', 'id')->all()
+                            : [])
+                        ->default(fn (): ?string => Auth::user() ? app(WardAccessService::class)->defaultWardIdFor(Auth::user()) : null)
+                        ->searchable()
+                        ->preload()
+                        ->nullable()
+                        ->disabled(fn (Get $get): bool => blank($get('branch_id'))),
                     Textarea::make('notes')
                         ->label(__('Notes'))
                         ->nullable()
@@ -191,6 +243,7 @@ class MyWardRequestsWidget extends BaseWidget
                     app(RequisitionService::class)->create([
                         'branch_id' => $data['branch_id'],
                         'department_id' => $data['department_id'],
+                        'location_id' => $data['location_id'] ?? null,
                         'notes' => $data['notes'] ?? null,
                         'items' => $data['items'],
                     ]);

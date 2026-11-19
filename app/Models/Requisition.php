@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Modules\Core\Models\Branch;
 use Modules\Core\Models\Department;
+use Modules\Core\Models\Location;
 use Modules\Inventory\Enums\RequisitionStatus;
 
 class Requisition extends Model
@@ -22,8 +23,11 @@ class Requisition extends Model
         'requisition_number',
         'requestor_id',
         'department_id',
+        'location_id',
         'branch_id',
         'status',
+        'endorsed_by',
+        'endorsed_at',
         'approved_by',
         'approved_at',
         'declined_by',
@@ -38,6 +42,7 @@ class Requisition extends Model
 
     protected $casts = [
         'status' => RequisitionStatus::class,
+        'endorsed_at' => 'datetime',
         'approved_at' => 'datetime',
         'declined_at' => 'datetime',
         'issued_at' => 'datetime',
@@ -57,6 +62,16 @@ class Requisition extends Model
     public function department(): BelongsTo
     {
         return $this->belongsTo(Department::class);
+    }
+
+    public function location(): BelongsTo
+    {
+        return $this->belongsTo(Location::class, 'location_id');
+    }
+
+    public function endorsedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'endorsed_by');
     }
 
     public function branch(): BelongsTo

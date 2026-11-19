@@ -3,16 +3,21 @@
 namespace Modules\Inventory\Providers;
 
 use Illuminate\Console\Scheduling\Schedule;
+use Modules\Core\Classes\Support\PageWidgetsRegistry;
 use Modules\Core\Contracts\InventoryLowStockProviderContract;
 use Modules\Core\Contracts\PharmacyStockItemTableActionsContract;
+use Modules\Core\Contracts\WardInventoryOverviewContract;
 use Modules\Core\Contracts\WardMedicationConsumptionContract;
 use Modules\Core\Contracts\WardStockConsumptionContract;
 use Modules\Core\Settings\NotificationSettings;
 use Modules\Inventory\Classes\Support\InventoryLowStockProvider;
 use Modules\Inventory\Classes\Support\InventoryPharmacyStockItemTableActions;
+use Modules\Inventory\Classes\Support\InventoryWardInventoryOverview;
 use Modules\Inventory\Classes\Support\InventoryWardMedicationConsumption;
 use Modules\Inventory\Classes\Support\InventoryWardStockConsumption;
 use Modules\Inventory\Console\CheckStockAlertsCommand;
+use Modules\Inventory\Filament\Widgets\WardItemIssuesWidget;
+use Modules\Inventory\Filament\Widgets\WardStockOnHandWidget;
 use Nwidart\Modules\Support\ModuleServiceProvider;
 
 class InventoryServiceProvider extends ModuleServiceProvider
@@ -57,11 +62,14 @@ class InventoryServiceProvider extends ModuleServiceProvider
         $this->app->bind(InventoryLowStockProviderContract::class, InventoryLowStockProvider::class);
         $this->app->bind(WardStockConsumptionContract::class, InventoryWardStockConsumption::class);
         $this->app->bind(WardMedicationConsumptionContract::class, InventoryWardMedicationConsumption::class);
+        $this->app->bind(WardInventoryOverviewContract::class, InventoryWardInventoryOverview::class);
     }
 
     public function boot(): void
     {
         parent::boot();
+
+        $this->registerWardBoardWidgets();
 
         $this->app->booted(function () {
             $schedule = $this->app->make(Schedule::class);
@@ -101,6 +109,30 @@ class InventoryServiceProvider extends ModuleServiceProvider
                     }
                 })
                 ->monthly();
+        });
+    }
+
+    protected function registerWardBoardWidgets(): void
+    {
+        if (! $this->app->bound(PageWidgetsRegistry::class)) {
+            return;
+        }
+
+        $wardBoardClass = 'Modules\\Clinical\\Filament\\Clusters\\Workspace\\Pages\\WardBoard';
+
+        $registry = $this->app->make(PageWidgetsRegistry::class);
+        $registry->register($wardBoardClass, 'footer', static function (): array {
+            $widgets = [];
+
+            if (WardStockOnHandWidget::canView()) {
+                $widgets[] = WardStockOnHandWidget::class;
+            }
+
+            if (WardItemIssuesWidget::canView()) {
+                $widgets[] = WardItemIssuesWidget::class;
+            }
+
+            return $widgets;
         });
     }
 }

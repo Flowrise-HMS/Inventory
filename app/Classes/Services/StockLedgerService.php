@@ -53,8 +53,9 @@ class StockLedgerService
         ?string $stockTransferId,
         ?string $lotNumber = null,
         ?string $expiryDate = null,
+        ?string $locationId = null,
     ): StockBalance {
-        return $this->lockBalance($itemId, $branchId, $locationType, $departmentId, $stockTransferId, $lotNumber, $expiryDate);
+        return $this->lockBalance($itemId, $branchId, $locationType, $departmentId, $stockTransferId, $lotNumber, $expiryDate, $locationId);
     }
 
     public function lockAndDecrement(
@@ -68,6 +69,7 @@ class StockLedgerService
         ?object $reference = null,
         ?string $lotNumber = null,
         ?string $expiryDate = null,
+        ?string $locationId = null,
     ): StockBalance {
         if ($lotNumber !== null || $expiryDate !== null) {
             return $this->decrementSpecificLot(
@@ -81,6 +83,7 @@ class StockLedgerService
                 reference: $reference,
                 lotNumber: $lotNumber,
                 expiryDate: $expiryDate,
+                locationId: $locationId,
             );
         }
 
@@ -93,6 +96,7 @@ class StockLedgerService
             qty: $qty,
             transactionType: $transactionType,
             reference: $reference,
+            locationId: $locationId,
         );
 
         return StockBalance::query()->findOrFail($allocations[0]['stock_balance_id']);
@@ -109,9 +113,10 @@ class StockLedgerService
         ?object $reference = null,
         ?string $lotNumber = null,
         ?string $expiryDate = null,
+        ?string $locationId = null,
     ): StockBalance {
-        return DB::transaction(function () use ($itemId, $branchId, $locationType, $departmentId, $stockTransferId, $qty, $transactionType, $reference, $lotNumber, $expiryDate) {
-            $balance = $this->lockBalance($itemId, $branchId, $locationType, $departmentId, $stockTransferId, $lotNumber, $expiryDate);
+        return DB::transaction(function () use ($itemId, $branchId, $locationType, $departmentId, $stockTransferId, $qty, $transactionType, $reference, $lotNumber, $expiryDate, $locationId) {
+            $balance = $this->lockBalance($itemId, $branchId, $locationType, $departmentId, $stockTransferId, $lotNumber, $expiryDate, $locationId);
 
             $balance->quantity_on_hand += $qty;
             $balance->save();
@@ -134,8 +139,9 @@ class StockLedgerService
         int $qty,
         TransactionType $transactionType,
         ?object $reference = null,
+        ?string $locationId = null,
     ): array {
-        return DB::transaction(function () use ($itemId, $branchId, $locationType, $departmentId, $stockTransferId, $qty, $transactionType, $reference) {
+        return DB::transaction(function () use ($itemId, $branchId, $locationType, $departmentId, $stockTransferId, $qty, $transactionType, $reference, $locationId) {
             $remaining = $qty;
             $allocations = [];
 
@@ -147,6 +153,11 @@ class StockLedgerService
                 ->where('branch_id', $branchId)
                 ->where('location_type', $locationType->value)
                 ->where('department_id', $departmentId)
+                ->when(
+                    $locationId === null,
+                    fn ($query) => $query->whereNull('location_id'),
+                    fn ($query) => $query->where('location_id', $locationId),
+                )
                 ->where('stock_transfer_id', $stockTransferId)
                 ->where('quantity_on_hand', '>', 0);
 
@@ -224,8 +235,10 @@ class StockLedgerService
         int $qty,
         TransactionType $transactionType,
         ?object $reference = null,
+        ?string $fromLocationId = null,
+        ?string $toLocationId = null,
     ): void {
-        DB::transaction(function () use ($itemId, $fromBranchId, $fromLocation, $fromDepartmentId, $fromStockTransferId, $toBranchId, $toLocation, $toDepartmentId, $toStockTransferId, $qty, $transactionType, $reference): void {
+        DB::transaction(function () use ($itemId, $fromBranchId, $fromLocation, $fromDepartmentId, $fromStockTransferId, $toBranchId, $toLocation, $toDepartmentId, $toStockTransferId, $qty, $transactionType, $reference, $fromLocationId, $toLocationId): void {
             $allocations = $this->decrementFefo(
                 itemId: $itemId,
                 branchId: $fromBranchId,
@@ -235,6 +248,7 @@ class StockLedgerService
                 qty: $qty,
                 transactionType: $transactionType,
                 reference: $reference,
+                locationId: $fromLocationId,
             );
 
             foreach ($allocations as $allocation) {
@@ -249,6 +263,7 @@ class StockLedgerService
                     reference: $reference,
                     lotNumber: $allocation['lot_number'],
                     expiryDate: $allocation['expiry_date'],
+                    locationId: $toLocationId,
                 );
             }
         });
@@ -265,9 +280,10 @@ class StockLedgerService
         ?object $reference,
         ?string $lotNumber,
         ?string $expiryDate,
+        ?string $locationId = null,
     ): StockBalance {
-        return DB::transaction(function () use ($itemId, $branchId, $locationType, $departmentId, $stockTransferId, $qty, $transactionType, $reference, $lotNumber, $expiryDate) {
-            $balance = $this->lockBalance($itemId, $branchId, $locationType, $departmentId, $stockTransferId, $lotNumber, $expiryDate);
+        return DB::transaction(function () use ($itemId, $branchId, $locationType, $departmentId, $stockTransferId, $qty, $transactionType, $reference, $lotNumber, $expiryDate, $locationId) {
+            $balance = $this->lockBalance($itemId, $branchId, $locationType, $departmentId, $stockTransferId, $lotNumber, $expiryDate, $locationId);
 
             if ($balance->quantity_on_hand < $qty) {
                 throw new \RuntimeException('Insufficient stock on hand.');
@@ -290,6 +306,7 @@ class StockLedgerService
         ?string $stockTransferId,
         ?string $lotNumber = null,
         ?string $expiryDate = null,
+        ?string $locationId = null,
     ): StockBalance {
         $normalizedLot = $this->normalizeLotNumber($lotNumber);
         $normalizedExpiry = $this->normalizeExpiryDate($expiryDate);
@@ -299,6 +316,11 @@ class StockLedgerService
             ->where('branch_id', $branchId)
             ->where('location_type', $locationType->value)
             ->where('department_id', $departmentId)
+            ->when(
+                $locationId === null,
+                fn ($query) => $query->whereNull('location_id'),
+                fn ($query) => $query->where('location_id', $locationId),
+            )
             ->where('stock_transfer_id', $stockTransferId)
             ->when(
                 $normalizedLot === null,
@@ -321,6 +343,7 @@ class StockLedgerService
                 'branch_id' => $branchId,
                 'location_type' => $locationType->value,
                 'department_id' => $departmentId,
+                'location_id' => $locationId,
                 'stock_transfer_id' => $stockTransferId,
                 'lot_number' => $normalizedLot,
                 'expiry_date' => $normalizedExpiry,
