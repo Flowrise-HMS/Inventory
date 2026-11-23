@@ -31,9 +31,12 @@ flowchart LR
 ### Built (services + Filament)
 
 - Maintain an **inventory item catalog** (supplies, consumables, equipment, general items) with optional medication linking and initial dispensary stock on create.
-- Track **stock balances** across dispensary, ward, and in-transit locations per branch, including **lot tracking** with **FEFO** ledger decrement (expired lots are skipped on dispense/issue and can be written off through adjustments).
+- Run several **named stores** per branch (General Stores, Medical Stores, Linen Store, ...) under **Inventory → Stores**. Each branch has one **main store** that receives purchase orders and transfers and serves requisitions by default. Requisitions can target a specific store and are issued only from that store's stock. Assign **store keepers** per store; once a store has keepers, only they (or users with `manage_all_stores`) can issue from it. The `store_keeper` role (Core `UserRole`) carries the stores permissions.
+- Track **stock balances** across dispensary (store), ward, and in-transit locations per branch, including **lot tracking** with **FEFO** ledger decrement (expired lots are skipped on dispense/issue and can be written off through adjustments).
 - Create and manage **purchase orders** — draft, submit, receive (partial quantities via modal), close.
-- **Approve, decline, issue, or close** ward/department requisitions from Filament (issue on View → Items; **Fulfill items** shortcut on list/widget).
+- **Approve, decline, issue, or close** ward/department requisitions from Filament.
+- **Issue counter** (Inventory → Issue counter): the storekeeper's queue of approved and backordered requisitions for their stores. **Issue items** hands over several lines at once, defaulting to what the store actually holds. Issuing less than owed needs a reason (out of stock, rationed, substituted, other) and a choice: **backorder** the rest or **close** it. The person collecting is recorded (staff member or typed name) and **draws a signature**, replacing the paper register (`INVENTORY_REQUIRE_COLLECTOR_SIGNATURE`, default on).
+- **Ward confirmation**: the requester, the collector or the ward incharge confirms what arrived from the **Ward requisitions** widget, or disputes a shortfall with a note, which notifies the store's keepers. The requisition's **Hand-overs** tab and the **voucher PDF** show requested / approved / issued / closed / received quantities and each collector's signature.
 - Run **inter-branch stock transfers** — create, ship, receive (partial), close with in-transit write-off.
 - **Adjust stock** on any balance (Stock Balances → View → Adjust stock).
 - View the **complete inventory ledger** and **analytics report** (8 chart widgets, CSV export).
@@ -41,7 +44,11 @@ flowchart LR
 - **My ward requests** dashboard widget (lazy table, rendered after the Patient widgets) with slide-over create/view and fulfill shortcut.
 - **Pharmacy → Stock Items → Request from central store** for medication-linked replenishment (only rendered when an active `InventoryItem` has that `medication_id` and pharmacy procurement is enabled).
 - **Auto-reorder draft PO** generation from dispensary low stock.
-- **Scheduled reorder alerts** — `inventory:check-stock-alerts` (daily/weekly/monthly via Core `NotificationSettings`) notifies `super_admin` users through `InventoryReorderAlertNotification`.
+- **Stock levels per store item**: a reorder point (minimum) and optional maximum level, set from **Set stock levels** on a stock balance or from the Stores dashboard. They apply to every lot of the item in that store. Suggested orders top up to the maximum level when one is set.
+- **Instant low-stock alerts**: when an issue takes an item to or below its reorder point, that store's keepers (super admins if it has none) get an in-app notification. It fires once per drop, again if the item runs out, and resets once stock recovers (`INVENTORY_REALTIME_LOW_STOCK_ALERTS`, default on).
+- **Scheduled stores digest** — `inventory:check-stock-alerts` (daily/weekly/monthly via Core `NotificationSettings`) sends each person one `InventoryReorderAlertNotification` covering the stores they keep: low-stock items plus lots that are expired or expire within `INVENTORY_EXPIRY_WARNING_DAYS` (default 60). Stores without keepers go to `super_admin` users.
+- **Stock-takes** (Inventory → Stock-takes): start a count for a store, which snapshots every lot. Optionally make it a **blind count**, where counters don't see system quantities. Counts are entered inline on the count sheet, and stock found on the shelf can be added. Then submit, and a supervisor with `approve_stock_take` approves; it can't be the person who submitted, unless they have `manage_all_stores`. Approval posts each difference as a stock adjustment, all or nothing. Every difference needs a reason: on an open count before submitting, on a blind count from the approver. A count can be sent back for recount or cancelled. Printable **count sheet** and **variance report** PDFs.
+- **Stores dashboard** (Inventory → Stores dashboard): out of stock, low stock, expiring and expired lots, requests waiting at the counter and backorders, and disputed hand-overs, filterable by store.
 
 ### Feature toggles
 
@@ -55,7 +62,7 @@ Enforced via `Feature::` in services and Filament navigation (`inventory_pharmac
 
 1. **Set up** your inventory catalog (items, suppliers, units, branches).
 2. **Procure stock**: Create a purchase order → submit to supplier → receive goods → stock appears in dispensary (optionally by lot/expiry).
-3. **Fulfill requests**: Ward staff request items via requisition → supervisor approves → dispensary issues stock from Filament.
+3. **Fulfill requests**: Ward staff request items via requisition (optionally choosing the store) → supervisor approves → the store's keeper issues stock from Filament.
 4. **Move stock between sites**: Source branch ships → in-transit tracking → destination branch receives.
 5. **Reconcile**: Run stock adjustments when physical count differs from system; review the transaction ledger.
 6. **Stay ahead of shortages**: Enable reorder alerts under Administration → System → Notifications (Inventory section); use **Generate from low stock** on purchase orders when needed.

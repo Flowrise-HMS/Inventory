@@ -51,6 +51,7 @@ class IssueToPharmacyService
                 qty: $inventoryQty,
                 transactionType: TransactionType::Issue,
                 reference: $requisitionItem,
+                storeId: $requisition->store_id,
             );
 
             $this->stockProvider->incrementWithReference(

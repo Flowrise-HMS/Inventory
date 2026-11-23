@@ -28,6 +28,7 @@ class AutoReorderService
                 'stock_balances.branch_id',
                 DB::raw('SUM(stock_balances.quantity_on_hand) as quantity_on_hand'),
                 DB::raw('MAX(stock_balances.reorder_point) as reorder_point'),
+                DB::raw('MAX(stock_balances.max_level) as max_level'),
                 'inventory_items.name as item_name',
                 'branches.name as branch_name',
             ])
@@ -65,7 +66,11 @@ class AutoReorderService
                     'branch_name' => (string) $row->branch_name,
                     'quantity_on_hand' => $onHand,
                     'reorder_point' => $reorderPoint,
-                    'quantity_to_order' => max(1, $reorderPoint - $onHand),
+                    'quantity_to_order' => app(StoreStockLevelService::class)->suggestedOrderQuantity(
+                        $onHand,
+                        $reorderPoint,
+                        $row->max_level !== null ? (int) $row->max_level : null,
+                    ),
                 ];
             })
             ->values()

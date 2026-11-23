@@ -2,21 +2,18 @@
 
 namespace Modules\Inventory\Filament\Clusters\Inventory\Resources\Requisitions\RelationManagers;
 
-use Filament\Actions\Action;
 use Filament\Actions\ActionGroup;
 use Filament\Actions\CreateAction;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\EditAction;
-use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
-use Filament\Notifications\Notification;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Schemas\Schema;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
-use Modules\Inventory\Classes\Services\RequisitionService;
 use Modules\Inventory\Enums\RequisitionStatus;
+use Modules\Inventory\Filament\Actions\IssueHandoverAction;
 use Modules\Inventory\Models\InventoryItem;
 use Modules\Inventory\Models\Requisition;
 use Modules\Inventory\Models\RequisitionItem;
@@ -67,44 +64,30 @@ class RequisitionItemsRelationManager extends RelationManager
                     ->placeholder('-'),
                 TextColumn::make('quantity_issued')
                     ->label('Issued'),
+                TextColumn::make('quantity_closed')
+                    ->label('Closed short')
+                    ->tooltip('Quantity the store decided not to issue')
+                    ->formatStateUsing(fn (int $state): string => $state > 0 ? (string) $state : '-'),
+                TextColumn::make('outstanding')
+                    ->label('Still owed')
+                    ->state(fn (RequisitionItem $record): int => $record->outstandingQuantity())
+                    ->badge()
+                    ->color(fn (int $state): string => $state > 0 ? 'warning' : 'success'),
+                TextColumn::make('in_store')
+                    ->label('In store now')
+                    ->state(fn (RequisitionItem $record): int => StockBalance::dispensaryOnHand(
+                        $record->inventory_item_id,
+                        $this->getOwnerRecord()->branch_id,
+                        $this->getOwnerRecord()->store_id,
+                    ))
+                    ->toggleable(),
             ])
             ->headerActions([
                 CreateAction::make()
                     ->visible(fn (): bool => $this->getOwnerRecord()->status === RequisitionStatus::Pending),
+                IssueHandoverAction::make(resolveRequisition: fn (): Requisition => $this->getOwnerRecord()),
             ])
             ->recordActions([
-                Action::make('issue')
-                    ->label('Issue')
-                    ->icon('heroicon-m-arrow-right-circle')
-                    ->color('success')
-                    ->visible(fn (RequisitionItem $record): bool => in_array($this->getOwnerRecord()->status, [
-                        RequisitionStatus::Approved,
-                        RequisitionStatus::PartiallyIssued,
-                    ], true) && $record->quantity_issued < ($record->quantity_approved ?? $record->quantity_requested))
-                    ->authorize(fn (): bool => auth()->user()->can('issue', $this->getOwnerRecord()))
-                    ->schema(fn (RequisitionItem $record) => [
-                        Placeholder::make('dispensary_on_hand')
-                            ->label('Dispensary on hand')
-                            ->content((string) StockBalance::dispensaryOnHand(
-                                $record->inventory_item_id,
-                                $this->getOwnerRecord()->branch_id,
-                            )),
-                        TextInput::make('qty')
-                            ->label('Quantity to issue')
-                            ->numeric()
-                            ->minValue(1)
-                            ->maxValue(($record->quantity_approved ?? $record->quantity_requested) - $record->quantity_issued)
-                            ->default(($record->quantity_approved ?? $record->quantity_requested) - $record->quantity_issued)
-                            ->required(),
-                    ])
-                    ->action(function (RequisitionItem $record, array $data): void {
-                        app(RequisitionService::class)->issue($record, (int) $data['qty']);
-
-                        Notification::make()
-                            ->success()
-                            ->title('Item issued')
-                            ->send();
-                    }),
                 ActionGroup::make([
                     EditAction::make()
                         ->visible(fn (): bool => $this->getOwnerRecord()->status === RequisitionStatus::Pending),

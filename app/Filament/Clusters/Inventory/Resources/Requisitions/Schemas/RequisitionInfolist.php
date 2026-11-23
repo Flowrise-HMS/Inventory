@@ -29,6 +29,9 @@ class RequisitionInfolist
                             ->label('Department'),
                         TextEntry::make('branch.name')
                             ->label('Branch'),
+                        TextEntry::make('store.name')
+                            ->label('Store')
+                            ->placeholder('-'),
                         TextEntry::make('notes')
                             ->placeholder('No notes.')
                             ->columnSpanFull(),

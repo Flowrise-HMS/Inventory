@@ -17,6 +17,9 @@ class StockBalanceInfolist
                     ->schema([
                         TextEntry::make('inventory_item.name'),
                         TextEntry::make('branch.name'),
+                        TextEntry::make('store.name')
+                            ->label(__('Store'))
+                            ->placeholder('—'),
                         TextEntry::make('location_type')
                             ->badge()
                             ->color(fn (StockLocationType $state): ?string => $state->getColor()),

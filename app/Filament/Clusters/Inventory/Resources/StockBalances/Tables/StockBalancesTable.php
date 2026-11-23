@@ -19,6 +19,10 @@ class StockBalancesTable
                 TextColumn::make('inventoryItem.name')
                     ->searchable(),
                 TextColumn::make('branch.name'),
+                TextColumn::make('store.name')
+                    ->label(__('Store'))
+                    ->placeholder('—')
+                    ->toggleable(),
                 TextColumn::make('location_type')
                     ->badge()
                     ->color(fn (StockLocationType $state): ?string => $state->getColor()),
@@ -36,6 +40,10 @@ class StockBalancesTable
                 TextColumn::make('quantity_on_hand')
                     ->sortable(),
                 TextColumn::make('reorder_point'),
+                TextColumn::make('max_level')
+                    ->label(__('Max level'))
+                    ->placeholder('—')
+                    ->toggleable(),
                 TextColumn::make('unit.label'),
                 TextColumn::make('created_at')
                     ->dateTime()
@@ -47,6 +55,9 @@ class StockBalancesTable
                     ->options(StockLocationType::class),
                 SelectFilter::make('branch_id')
                     ->relationship('branch', 'name'),
+                SelectFilter::make('store_id')
+                    ->label(__('Store'))
+                    ->relationship('store', 'name'),
             ])
             ->recordActions([
                 ViewAction::make(),

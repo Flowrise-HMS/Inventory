@@ -3,6 +3,8 @@
 namespace Modules\Inventory\Filament\Widgets;
 
 use Filament\Actions\Action;
+use Filament\Forms\Components\Hidden;
+use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
@@ -20,12 +22,15 @@ use Modules\Core\Filament\Concerns\InteractsWithWidgetShield;
 use Modules\Core\Models\Branch;
 use Modules\Core\Models\Department;
 use Modules\Core\Models\Location;
+use Modules\Inventory\Classes\Services\RequisitionIssueService;
 use Modules\Inventory\Classes\Services\RequisitionService;
+use Modules\Inventory\Enums\ReceiptStatus;
 use Modules\Inventory\Enums\RequisitionStatus;
 use Modules\Inventory\Filament\Clusters\Inventory\Resources\Requisitions\RequisitionResource;
 use Modules\Inventory\Filament\Clusters\Inventory\Resources\Requisitions\Schemas\RequisitionInfolist;
 use Modules\Inventory\Models\InventoryItem;
 use Modules\Inventory\Models\Requisition;
+use Modules\Inventory\Models\RequisitionIssue;
 
 class MyWardRequestsWidget extends BaseWidget
 {
@@ -45,7 +50,7 @@ class MyWardRequestsWidget extends BaseWidget
             : [];
 
         return Requisition::query()
-            ->with(['items.inventoryItem', 'department', 'location', 'branch', 'requestor', 'endorsedBy', 'approvedBy', 'issuedBy'])
+            ->with(['items.inventoryItem', 'department', 'location', 'branch', 'requestor', 'endorsedBy', 'approvedBy', 'issuedBy', 'issues.inventoryItem', 'issues.collectedBy'])
             ->where(function (Builder $query) use ($inchargeWardIds): void {
                 $query->where('requestor_id', Auth::id());
 
@@ -86,6 +91,25 @@ class MyWardRequestsWidget extends BaseWidget
                 ->limitList(3)
                 ->expandableLimitedList()
                 ->wrap(),
+            TextColumn::make('receipt')
+                ->label(__('Receipt'))
+                ->badge()
+                ->state(function (Requisition $record): ?string {
+                    $awaiting = $record->issues->where('receipt_status', ReceiptStatus::AwaitingConfirmation)->count();
+
+                    return match (true) {
+                        $awaiting > 0 => trans_choice(':count hand-over to confirm|:count hand-overs to confirm', $awaiting),
+                        $record->issues->contains('receipt_status', ReceiptStatus::Disputed) => __('Disputed'),
+                        $record->issues->isNotEmpty() => __('Confirmed'),
+                        default => null,
+                    };
+                })
+                ->color(fn (?string $state): string => match (true) {
+                    $state === __('Disputed') => 'danger',
+                    $state === __('Confirmed') => 'success',
+                    default => 'warning',
+                })
+                ->placeholder('—'),
             TextColumn::make('created_at')
                 ->label(__('Created'))
                 ->dateTime()
@@ -113,6 +137,91 @@ class MyWardRequestsWidget extends BaseWidget
                     RequisitionStatus::Approved,
                     RequisitionStatus::PartiallyIssued,
                 ], true)),
+            Action::make('confirm_receipt')
+                ->label(__('Confirm receipt'))
+                ->icon('heroicon-m-clipboard-document-check')
+                ->color('warning')
+                ->slideOver()
+                ->modalWidth('3xl')
+                ->modalHeading(fn (Requisition $record) => __('Confirm what you received: :number', ['number' => $record->requisition_number]))
+                ->modalDescription(__('Check the items against what the store issued. If you got less, enter the real quantity and explain; the store is notified.'))
+                ->modalSubmitActionLabel(__('Confirm receipt'))
+                ->visible(fn (Requisition $record): bool => static::confirmableIssues($record) !== [])
+                ->fillForm(fn (Requisition $record): array => [
+                    'receipts' => array_map(fn (RequisitionIssue $issue): array => [
+                        'issue_id' => (string) $issue->getKey(),
+                        'quantity_issued' => $issue->quantity_issued,
+                        'summary' => __(':item: :qty issued on :date, collected by :collector', [
+                            'item' => $issue->inventoryItem?->name ?? __('Item'),
+                            'qty' => $issue->quantity_issued,
+                            'date' => $issue->issued_at?->format('Y-m-d H:i'),
+                            'collector' => $issue->collectorName() ?? __('not recorded'),
+                        ]),
+                        'quantity_received' => $issue->quantity_issued,
+                        'discrepancy_note' => null,
+                    ], static::confirmableIssues($record)),
+                ])
+                ->schema([
+                    Repeater::make('receipts')
+                        ->hiddenLabel()
+                        ->addable(false)
+                        ->deletable(false)
+                        ->reorderable(false)
+                        ->columns(2)
+                        ->schema([
+                            Hidden::make('issue_id'),
+                            Hidden::make('quantity_issued'),
+                            Hidden::make('summary'),
+                            Placeholder::make('line')
+                                ->hiddenLabel()
+                                ->columnSpanFull()
+                                ->content(fn (Get $get): string => (string) $get('summary')),
+                            TextInput::make('quantity_received')
+                                ->label(__('Quantity received'))
+                                ->numeric()
+                                ->integer()
+                                ->minValue(0)
+                                ->maxValue(fn (Get $get): int => (int) $get('quantity_issued'))
+                                ->required()
+                                ->live(onBlur: true),
+                            Textarea::make('discrepancy_note')
+                                ->label(__('What happened?'))
+                                ->rows(2)
+                                ->visible(fn (Get $get): bool => is_numeric($get('quantity_received')) && (int) $get('quantity_received') < (int) $get('quantity_issued'))
+                                ->required(fn (Get $get): bool => is_numeric($get('quantity_received')) && (int) $get('quantity_received') < (int) $get('quantity_issued')),
+                        ]),
+                ])
+                ->action(function (Requisition $record, array $data, Action $action): void {
+                    $confirmations = [];
+
+                    foreach ($data['receipts'] ?? [] as $receipt) {
+                        $confirmations[(string) $receipt['issue_id']] = [
+                            'quantity_received' => $receipt['quantity_received'] ?? null,
+                            'discrepancy_note' => $receipt['discrepancy_note'] ?? null,
+                        ];
+                    }
+
+                    try {
+                        $issues = app(RequisitionIssueService::class)->confirmReceipt($record, $confirmations);
+                    } catch (\RuntimeException $e) {
+                        Notification::make()->danger()->title(__('Could not confirm'))->body($e->getMessage())->send();
+                        $action->halt();
+
+                        return;
+                    }
+
+                    $disputed = $issues->where('receipt_status', ReceiptStatus::Disputed)->count();
+
+                    $notification = Notification::make();
+
+                    $disputed > 0
+                        ? $notification->warning()
+                            ->title(__('Receipt recorded with a dispute'))
+                            ->body(__('The store has been notified about the difference.'))
+                        : $notification->success()->title(__('Receipt confirmed'));
+
+                    $notification->send();
+                }),
             Action::make('endorse')
                 ->label(__('Endorse'))
                 ->icon('heroicon-m-check-badge')
@@ -259,6 +368,30 @@ class MyWardRequestsWidget extends BaseWidget
     protected function isTablePaginationEnabled(): bool
     {
         return false;
+    }
+
+    /**
+     * @return list<RequisitionIssue>
+     */
+    protected static function confirmableIssues(Requisition $record): array
+    {
+        $user = Auth::user();
+
+        if ($user === null) {
+            return [];
+        }
+
+        $service = app(RequisitionIssueService::class);
+
+        return $record->issues
+            ->filter(function (RequisitionIssue $issue) use ($record, $service, $user): bool {
+                $issue->setRelation('requisition', $record);
+
+                return $service->canConfirmReceipt($user, $issue);
+            })
+            ->sortBy('issued_at')
+            ->values()
+            ->all();
     }
 
     protected static function inventoryItemLabel(InventoryItem $item): string

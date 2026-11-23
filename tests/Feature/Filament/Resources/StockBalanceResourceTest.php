@@ -52,9 +52,10 @@ it('lets an authorised user change the reorder point from the list', function ()
     ]);
 
     Livewire\Livewire::test(ListStockBalances::class)
-        ->callTableAction('setReorderPoint', $balance, data: ['reorder_point' => 200])
+        ->callTableAction('setReorderPoint', $balance, data: ['reorder_point' => 200, 'max_level' => 500])
         ->assertHasNoTableActionErrors()
-        ->assertNotified('Reorder point updated');
+        ->assertNotified('Stock levels updated');
 
-    expect($balance->fresh()->reorder_point)->toBe(200);
+    expect($balance->fresh()->reorder_point)->toBe(200)
+        ->and($balance->fresh()->max_level)->toBe(500);
 });

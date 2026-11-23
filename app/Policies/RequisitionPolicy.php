@@ -42,9 +42,24 @@ class RequisitionPolicy
         return $authUser->can('Approve Requisition');
     }
 
+    /**
+     * Issuing is restricted to the serving store's keepers once a store has
+     * keepers assigned. Stores without keepers, and users with
+     * `manage_all_stores`, keep the plain permission check.
+     */
     public function issue(AuthUser $authUser, Requisition $requisition): bool
     {
-        return $authUser->can('Issue Requisition');
+        if (! $authUser->can('Issue Requisition')) {
+            return false;
+        }
+
+        $store = $requisition->store;
+
+        if ($store === null || ! $store->hasKeepers() || $authUser->can('manage_all_stores')) {
+            return true;
+        }
+
+        return $store->keepers()->whereKey($authUser->getKey())->exists();
     }
 
     public function restore(AuthUser $authUser, Requisition $requisition): bool

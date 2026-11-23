@@ -15,7 +15,7 @@ use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Modules\Inventory\Classes\Services\RequisitionService;
 use Modules\Inventory\Enums\RequisitionStatus;
-use Modules\Inventory\Filament\Clusters\Inventory\Resources\Requisitions\RequisitionResource;
+use Modules\Inventory\Filament\Actions\IssueHandoverAction;
 use Modules\Inventory\Models\Requisition;
 
 class RequisitionsTable
@@ -35,6 +35,10 @@ class RequisitionsTable
                     ->label('Department'),
                 TextColumn::make('branch.name')
                     ->label('Branch'),
+                TextColumn::make('store.name')
+                    ->label('Store')
+                    ->placeholder('-')
+                    ->toggleable(),
                 TextColumn::make('status')
                     ->badge()
                     ->color(fn (RequisitionStatus $state): string => $state->getColor()),
@@ -74,16 +78,7 @@ class RequisitionsTable
                         app(RequisitionService::class)->decline($record, $data['decline_reason']);
                         Notification::make()->success()->title('Requisition declined')->send();
                     }),
-                Action::make('fulfill')
-                    ->label('Fulfill items')
-                    ->icon('heroicon-m-arrow-right-circle')
-                    ->color('primary')
-                    ->url(fn (Requisition $record): string => RequisitionResource::getUrl('view', ['record' => $record]).'#relationManagerItems')
-                    ->visible(fn (Requisition $record): bool => in_array($record->status, [
-                        RequisitionStatus::Approved,
-                        RequisitionStatus::PartiallyIssued,
-                    ], true))
-                    ->authorize(fn (Requisition $record): bool => auth()->user()->can('issue', $record)),
+                IssueHandoverAction::make(),
                 Action::make('close')
                     ->label('Close')
                     ->icon('heroicon-m-lock-closed')
@@ -106,7 +101,8 @@ class RequisitionsTable
                     ->visible(fn (Requisition $record): bool => in_array($record->status, [
                         RequisitionStatus::PartiallyIssued,
                         RequisitionStatus::Issued,
-                    ])),
+                        RequisitionStatus::Closed,
+                    ], true)),
                 Action::make('download_voucher')
                     ->label('Download Voucher')
                     ->icon('heroicon-m-arrow-down-tray')
@@ -116,7 +112,8 @@ class RequisitionsTable
                     ->visible(fn (Requisition $record): bool => in_array($record->status, [
                         RequisitionStatus::PartiallyIssued,
                         RequisitionStatus::Issued,
-                    ])),
+                        RequisitionStatus::Closed,
+                    ], true)),
                 ActionGroup::make([
                     ViewAction::make(),
                     EditAction::make(),

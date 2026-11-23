@@ -4,8 +4,10 @@ use Illuminate\Support\Facades\Route;
 use Modules\Inventory\Http\Controllers\AdjustmentVoucherPdfController;
 use Modules\Inventory\Http\Controllers\GrnPdfController;
 use Modules\Inventory\Http\Controllers\InventoryReportCsvController;
+use Modules\Inventory\Http\Controllers\RequisitionIssueSignatureController;
 use Modules\Inventory\Http\Controllers\RequisitionVoucherPdfController;
 use Modules\Inventory\Http\Controllers\StockCardPdfController;
+use Modules\Inventory\Http\Controllers\StockTakePdfController;
 use Modules\Inventory\Http\Controllers\TransferNotePdfController;
 
 Route::middleware(['web', 'auth'])->group(function () {
@@ -14,6 +16,15 @@ Route::middleware(['web', 'auth'])->group(function () {
 
     Route::get('/inventory/requisitions/{requisition}/voucher', RequisitionVoucherPdfController::class)
         ->name('inventory.requisitions.voucher');
+
+    Route::get('/inventory/requisition-issues/{issue}/signature', RequisitionIssueSignatureController::class)
+        ->name('inventory.requisition-issues.signature');
+
+    Route::get('/inventory/stock-takes/{stockTake}/count-sheet', [StockTakePdfController::class, 'countSheet'])
+        ->name('inventory.stock-takes.count-sheet');
+
+    Route::get('/inventory/stock-takes/{stockTake}/variance-report', [StockTakePdfController::class, 'varianceReport'])
+        ->name('inventory.stock-takes.variance-report');
 
     Route::get('/inventory/stock-transfers/{transfer}/note', TransferNotePdfController::class)
         ->name('inventory.stock-transfers.note');

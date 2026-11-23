@@ -21,11 +21,21 @@ class InventoryReorderAlertNotification extends Notification implements ShouldQu
      *     branch_name: string,
      *     quantity_on_hand: int,
      *     reorder_point: int,
-     *     quantity_to_order: int
+     *     quantity_to_order: int,
+     *     store_name?: string
      * }>  $suggestions
+     * @param  list<array{
+     *     item_name: string,
+     *     store_name: string,
+     *     lot_number: ?string,
+     *     expiry_date: string,
+     *     quantity_on_hand: int,
+     *     is_expired: bool
+     * }>  $expiring  lots expiring soon or already expired on the shelf
      */
     public function __construct(
         public array $suggestions,
+        public array $expiring = [],
     ) {}
 
     public function via(object $notifiable): array
@@ -46,20 +56,40 @@ class InventoryReorderAlertNotification extends Notification implements ShouldQu
     public function toMail(object $notifiable): MailMessage
     {
         $email = (new MailMessage)
-            ->subject(__('FlowRise HMS - Inpatient Dispensary Low-Stock Reorder Alert'))
-            ->greeting(__('Hello, Procurement Officer,'))
-            ->line(__('This is an automated alert from the FlowRise HMS Inventory module. The following inpatient dispensary items have dropped below their designated reorder points:'))
-            ->line('');
+            ->subject(__('FlowRise HMS - Stores Low-Stock and Expiry Alert'))
+            ->greeting(__('Hello,'))
+            ->line(__('This is an automated alert from the FlowRise HMS Inventory module.'));
 
-        foreach ($this->suggestions as $item) {
-            $email->line(sprintf(
-                '• %s (Branch: %s) — On Hand: %d, Reorder Point: %d (Suggested order: %d)',
-                $item['item_name'],
-                $item['branch_name'],
-                $item['quantity_on_hand'],
-                $item['reorder_point'],
-                $item['quantity_to_order']
-            ));
+        if ($this->suggestions !== []) {
+            $email->line(__('These store items are at or below their reorder points:'));
+
+            foreach ($this->suggestions as $item) {
+                $email->line(sprintf(
+                    '• %s (%s, %s) — On Hand: %d, Reorder Point: %d (Suggested order: %d)',
+                    $item['item_name'],
+                    $item['store_name'] ?? __('Main Store'),
+                    $item['branch_name'],
+                    $item['quantity_on_hand'],
+                    $item['reorder_point'],
+                    $item['quantity_to_order']
+                ));
+            }
+        }
+
+        if ($this->expiring !== []) {
+            $email->line('')->line(__('These lots are expired or expiring soon:'));
+
+            foreach ($this->expiring as $lot) {
+                $email->line(sprintf(
+                    '• %s (%s) — Lot %s, %s %s, Qty %d',
+                    $lot['item_name'],
+                    $lot['store_name'],
+                    $lot['lot_number'] ?? '-',
+                    $lot['is_expired'] ? __('expired') : __('expires'),
+                    $lot['expiry_date'],
+                    $lot['quantity_on_hand'],
+                ));
+            }
         }
 
         return $email
@@ -71,18 +101,23 @@ class InventoryReorderAlertNotification extends Notification implements ShouldQu
 
     public function toSms(object $notifiable): string
     {
-        return __('FlowRise Alert: :count items are below their reorder points. Please review the purchase orders dashboard to generate draft POs.', [
+        return __('FlowRise Alert: :count store items are below their reorder points and :expiring lots are expired or expiring soon.', [
             'count' => count($this->suggestions),
+            'expiring' => count($this->expiring),
         ]);
     }
 
     public function toArray(object $notifiable): array
     {
         return [
-            'title' => __('Dispensary Low-Stock Reorder Alert'),
-            'message' => __('Multiple dispensary items are below their reorder points. Draft POs can be generated.'),
+            'title' => __('Stores Low-Stock and Expiry Alert'),
+            'message' => __(':count item(s) at or below reorder point; :expiring lot(s) expired or expiring soon.', [
+                'count' => count($this->suggestions),
+                'expiring' => count($this->expiring),
+            ]),
             'items_count' => count($this->suggestions),
             'suggestions' => $this->suggestions,
+            'expiring' => $this->expiring,
         ];
     }
 }

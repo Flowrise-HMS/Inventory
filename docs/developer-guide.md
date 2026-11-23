@@ -26,7 +26,7 @@ Key design rules:
 - **Location types** — Stock exists at `dispensary`, `ward`, or `in_transit` locations. There is no separate `pharmacy` location type in v1 — pharmacy stock flows through the `StockProviderContract` bridge instead.
 - **Document numbering** — All user-facing documents (POs, requisitions, transfers) get auto-generated numbers via `DocumentNumberingService`.
 
-## Models (13 models including DocumentSequence)
+## Models (15 models including DocumentSequence and Store)
 
 ### InventoryItem
 | Field | Type | Notes |
@@ -42,20 +42,42 @@ Key design rules:
 
 **Relations:** `medication()`, `unit()`, `stockBalances()`
 
+### Store
+| Field | Type | Notes |
+|-------|------|-------|
+| `id` | UUID PK | |
+| `branch_id` | UUID FK | |
+| `name` / `code` | string | `code` unique per branch; the auto-created main store uses `MAIN` |
+| `type` | StoreType enum | `General`, `Medical`, `Linen`, `Stationery`, `Maintenance`, `Other` |
+| `is_main` | bool | Exactly one per branch. Setting it on a store demotes the previous main store; it cannot be unset directly |
+| `is_active` | bool | The main store cannot be deactivated |
+
+**Relations:** `branch()`, `keepers()` (users via `store_keepers` pivot), `stockBalances()`, `requisitions()`
+
+**Rules:**
+- Central stock (`location_type = Dispensary`) always has a `store_id`. `StockLedgerService` resolves a null store to `Store::mainForBranch()` (created lazily), and rejects a store from another branch. Ward and in-transit balances never carry a store.
+- `StockBalance` and `Requisition` default `store_id` to the branch main store on create, so factories and legacy callers keep working.
+- Purchase order receipts, inter-branch transfers and opening stock go to the main store (no store selector yet). `AutoReorderService` still aggregates per branch across stores.
+- `RequisitionPolicy::issue`: once a store has keepers, only those keepers or users with `manage_all_stores` may issue. Stores with no keepers keep the plain `Issue Requisition` check.
+- `StorePolicy::delete` refuses the main store and any store with balances or requisitions (the FKs restrict on delete).
+- Migration `2026_11_23_000001_create_stores_and_assign_store_to_stock` creates a main store per existing branch and backfills `store_id` on central balances and all requisitions.
+
 ### StockBalance
 | Field | Type | Notes |
 |-------|------|-------|
 | `id` | UUID PK | |
 | `inventory_item_id` | UUID FK | |
 | `branch_id` | UUID FK | |
+| `store_id` | UUID? FK→Store | Set for central (`Dispensary`) stock only |
 | `location_type` | StockLocationType enum | `Dispensary`, `Ward`, `InTransit` |
 | `department_id` | UUID? FK | Only meaningful for ward location |
 | `stock_transfer_id` | UUID? FK | Only set when `location_type = InTransit` |
 | `quantity_on_hand` | int | Current stock level |
-| `reorder_point` | int? | Minimum before reorder alert |
+| `reorder_point` | int? | Minimum before reorder alert. For store stock, read as MAX across the item's rows in the store |
+| `max_level` | int? | Par level for reorder suggestions; same MAX rule |
 | `unit_id` | UUID? FK | Override unit if different from item default |
 
-**Unique constraint:** `[inventory_item_id, branch_id, location_type, department_id, stock_transfer_id]`
+**Unique constraint:** `[inventory_item_id, branch_id, store_id, location_type, department_id, location_id, stock_transfer_id, lot_number, expiry_date]`
 
 ### InventoryTransaction
 | Field | Type | Notes |
@@ -114,7 +136,25 @@ Per-item line within a receipt. Fields: `quantity_received`, `lot_number`, `expi
 | `issued_by` / `issued_at` | Set on issue | |
 
 ### RequisitionItem
-Fields: `quantity_requested`, `quantity_approved`, `quantity_issued` (cumulative), `notes`.
+Fields: `quantity_requested`, `quantity_approved`, `quantity_issued` (cumulative), `quantity_closed` (what the store decided never to issue), `notes`.
+
+Helpers: `targetQuantity()` (approved, else requested), `outstandingQuantity()` (target − issued − closed), `isBackordered()`.
+
+### RequisitionIssue (hand-over log)
+One row per line per counter hand-over. Lines handed over together share `handover_reference` and the collector's signature.
+
+| Field | Notes |
+|-------|-------|
+| `quantity_issued`, `quantity_outstanding_before` | What was handed over, and what was owed at that moment |
+| `short_issue_reason` | ShortIssueReason: `out_of_stock`, `rationed`, `substituted`, `other` (needs `short_issue_note`) |
+| `remainder_action`, `quantity_closed` | RemainderAction `backorder` (line stays open) or `close` (rest written off on the line) |
+| `issued_by`, `issued_at`, `store_id` | Storekeeper and serving store |
+| `collected_by` / `collected_by_name` | Collector: a user, or a typed name for people without an account |
+| `collector_signature_path` | Drawn signature PNG on the private `inventory.requisitions.signature_disk` (default `local`); served by `inventory.requisition-issues.signature` |
+| `receipt_status` | ReceiptStatus `awaiting_confirmation` → `confirmed` or `disputed` (close-only lines start `confirmed`) |
+| `quantity_received`, `receipt_confirmed_by/at`, `discrepancy_note` | Ward's confirmation; a shortfall needs a note and notifies the store's keepers (super admins if none) |
+
+**Status rules (`RequisitionIssueService::refreshStatus`)**: every line settled with something issued → `Issued`; every line settled with nothing issued → `Closed`; otherwise `PartiallyIssued` (a backorder).
 
 ### StockTransfer
 | Field | Type | Notes |
@@ -181,6 +221,9 @@ Draft → Shipped → PartiallyReceived → Received → Closed
 | Service | Responsibility |
 |---------|----------------|
 | `StockLedgerService` | Pessimistic locking, increment/decrement, transaction audit |
+| `StockTakeService` | Store stock-takes: `start` (one open count per store; snapshots central rows into `stock_take_lines`), `recordCount`, `recordReason`, `addFoundItem`, `submit`, `returnForRecount`, `approve`, `cancel`, `summary`. Approval posts **counted − snapshot** per line through `StockAdjustmentService::adjustStoreLot` (lot- and store-exact; uses `StockLedgerService::lockAndDecrementExact`), so stock issued during the count is not overwritten. Approval fails as a whole, naming the item, if stock moved too far to post a shortfall |
+| `StoreStockLevelService` | Per store item levels (`levels`, `setLevels` writes every lot row), `suggestedOrderQuantity` (max level, else reorder point), `lowStock`, `expiring`/`expiringQuery`, and real-time alerts: the ledger calls `queueEvaluation` on every central stock change, which runs `evaluate` after commit (failures are reported, never thrown). Open alerts live in `store_stock_alerts` (one per store+item, level `low`/`out`) and are deleted when stock recovers |
+| `RequisitionIssueService` | Counter hand-overs (`issueHandover`: multi-line, short-issue reason + backorder/close, collector + signature, all in one transaction; signature file removed on failure), ward `confirmReceipt` / `canConfirmReceipt` (requester, named collector or ward incharge; never the issuer), status refresh, signature storage. `RequisitionService::issue()` remains as a programmatic single-line issue that backorders any shortfall |
 | `DocumentNumberingService` | Sequential PO/REQ/TRF numbers per branch/date |
 | `PurchaseOrderService` | PO lifecycle: create, submit, receive, close, cancel |
 | `RequisitionService` | Requisition lifecycle: create, approve, decline, cancel, issue, close |
@@ -293,7 +336,7 @@ Calculates `delta = newQty - currentQty`, calls `lockAndIncrement` or `lockAndDe
 | Suppliers | Supplier | List, Create, Edit, View | — |
 | StockBalances | StockBalance | List, View | Adjust stock |
 | InventoryTransactions | InventoryTransaction | List, View | Read-only |
-| Requisitions | Requisition | List, Create, Edit, View | Approve, decline, issue (Items tab / Fulfill shortcut), close, print/download voucher |
+| Requisitions | Requisition | List, Create, Edit, View | Approve, decline, **Issue items** hand-over modal (list row and Items tab), close, print/download voucher; **Hand-overs** tab shows the issue log with signatures and ward receipt |
 | PurchaseOrders | PurchaseOrder | List, Create, Edit, View | Submit, receive (partial modal), close, print/download GRN, generate from low stock |
 | StockTransfers | StockTransfer | List, Create, Edit, View | Ship, receive (partial modal), close, print/download note |
 | InventoryReport | — | Analytics page | 8 chart widgets, date/branch filters, CSV export |

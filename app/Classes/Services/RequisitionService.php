@@ -5,6 +5,7 @@ namespace Modules\Inventory\Classes\Services;
 use App\Models\User;
 use Filament\Notifications\Notification;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Modules\Core\Classes\Services\WardAccessService;
 use Modules\Core\Models\Department;
 use Modules\Core\Models\Location;
@@ -13,13 +14,12 @@ use Modules\Inventory\Enums\RequisitionStatus;
 use Modules\Inventory\Events\RequisitionCreated;
 use Modules\Inventory\Models\Requisition;
 use Modules\Inventory\Models\RequisitionItem;
+use Modules\Inventory\Models\Store;
 
 class RequisitionService
 {
     public function __construct(
         protected DocumentNumberingService $numbering,
-        protected IssueToWardService $issueToWard,
-        protected IssueToPharmacyService $issueToPharmacy,
         protected WardAccessService $wardAccess,
     ) {}
 
@@ -40,6 +40,10 @@ class RequisitionService
             ? Location::withoutGlobalScope('branch')->where('branch_id', $branchId)->find($locationId)
             : null;
 
+        $store = filled($data['store_id'] ?? null)
+            ? Store::query()->forBranch($branchId)->active()->findOrFail($data['store_id'])
+            : Store::mainForBranch($branchId);
+
         $requestorId = $data['requestor_id'] ?? Auth::id();
         $requestor = $requestorId ? User::find($requestorId) : null;
 
@@ -57,6 +61,7 @@ class RequisitionService
             'department_id' => $data['department_id'],
             'location_id' => $ward?->id,
             'branch_id' => $branchId,
+            'store_id' => $store->getKey(),
             'status' => $initialStatus,
             'endorsed_by' => (! $requiresEndorsement && $ward !== null) ? $requestorId : null,
             'endorsed_at' => (! $requiresEndorsement && $ward !== null) ? now() : null,
@@ -139,43 +144,27 @@ class RequisitionService
         }
     }
 
+    /**
+     * Programmatic single-line issue with no counter hand-over: a short issue
+     * is treated as a backorder. Counter issues go through
+     * RequisitionIssueService::issueHandover() with a collector and signature.
+     */
     public function issue(RequisitionItem $item, int $qty): void
     {
-        $requisition = $item->requisition;
+        $outstanding = $item->outstandingQuantity();
 
-        $remaining = ($item->quantity_approved ?? $item->quantity_requested) - $item->quantity_issued;
-
-        if ($qty > $remaining) {
+        if ($qty > $outstanding) {
             throw new \RuntimeException(
-                "Cannot issue {$qty}, only {$remaining} remaining for item {$item->id}."
+                "Cannot issue {$qty}, only {$outstanding} remaining for item {$item->id}."
             );
         }
 
-        $inventoryItem = $item->inventoryItem;
-
-        if ($inventoryItem->medication_id) {
-            $this->issueToPharmacy->issue($item, $qty);
-        } else {
-            $this->issueToWard->issue($item, $qty);
-        }
-
-        $requisition->load('items');
-
-        $allIssued = $requisition->items->every(
-            fn (RequisitionItem $i) => $i->quantity_issued >= ($i->quantity_approved ?? $i->quantity_requested)
+        app(RequisitionIssueService::class)->issueHandover(
+            requisition: $item->requisition,
+            lines: [['requisition_item_id' => (string) $item->getKey(), 'quantity' => $qty]],
+            collector: null,
+            requireShortIssueDetails: false,
         );
-
-        if ($allIssued) {
-            $requisition->update([
-                'status' => RequisitionStatus::Issued,
-                'issued_by' => Auth::id(),
-                'issued_at' => now(),
-            ]);
-        } else {
-            $requisition->update([
-                'status' => RequisitionStatus::PartiallyIssued,
-            ]);
-        }
     }
 
     public function close(Requisition $requisition, string $reason): void
@@ -184,11 +173,22 @@ class RequisitionService
             throw new \RuntimeException('Only partially issued requisitions can be closed.');
         }
 
-        $requisition->update([
-            'status' => RequisitionStatus::Closed,
-            'closed_reason' => $reason,
-            'closed_at' => now(),
-        ]);
+        DB::transaction(function () use ($requisition, $reason): void {
+            // Whatever is still owed will not be issued.
+            foreach ($requisition->items as $item) {
+                $outstanding = $item->outstandingQuantity();
+
+                if ($outstanding > 0) {
+                    $item->increment('quantity_closed', $outstanding);
+                }
+            }
+
+            $requisition->update([
+                'status' => RequisitionStatus::Closed,
+                'closed_reason' => $reason,
+                'closed_at' => now(),
+            ]);
+        });
     }
 
     public function fetchForRequestor(User $user)

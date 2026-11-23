@@ -12,6 +12,7 @@ use Modules\Inventory\Filament\Clusters\Inventory\Resources\Requisitions\Pages\C
 use Modules\Inventory\Filament\Clusters\Inventory\Resources\Requisitions\Pages\EditRequisition;
 use Modules\Inventory\Filament\Clusters\Inventory\Resources\Requisitions\Pages\ListRequisitions;
 use Modules\Inventory\Filament\Clusters\Inventory\Resources\Requisitions\Pages\ViewRequisition;
+use Modules\Inventory\Filament\Clusters\Inventory\Resources\Requisitions\RelationManagers\RequisitionIssuesRelationManager;
 use Modules\Inventory\Filament\Clusters\Inventory\Resources\Requisitions\RelationManagers\RequisitionItemsRelationManager;
 use Modules\Inventory\Filament\Clusters\Inventory\Resources\Requisitions\Schemas\RequisitionForm;
 use Modules\Inventory\Filament\Clusters\Inventory\Resources\Requisitions\Schemas\RequisitionInfolist;
@@ -52,6 +53,7 @@ class RequisitionResource extends Resource
     {
         return [
             RequisitionItemsRelationManager::class,
+            RequisitionIssuesRelationManager::class,
         ];
     }
 
