@@ -6,6 +6,7 @@ use Filament\Infolists\Components\IconEntry;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
+use Illuminate\Support\Facades\Auth;
 use Modules\Inventory\Classes\Services\StockTakeService;
 use Modules\Inventory\Enums\StockTakeStatus;
 use Modules\Inventory\Models\StockTake;
@@ -57,9 +58,11 @@ class StockTakeInfolist
                             }),
                         TextEntry::make('variances')
                             ->label(__('Lines with a difference'))
+                            ->visible(fn (StockTake $record): bool => app(StockTakeService::class)->showsSystemQuantities($record, Auth::user()))
                             ->state(fn (StockTake $record): int => app(StockTakeService::class)->summary($record)['with_variance']),
                         TextEntry::make('units')
                             ->label(__('Units over / short'))
+                            ->visible(fn (StockTake $record): bool => app(StockTakeService::class)->showsSystemQuantities($record, Auth::user()))
                             ->state(function (StockTake $record): string {
                                 $s = app(StockTakeService::class)->summary($record);
 

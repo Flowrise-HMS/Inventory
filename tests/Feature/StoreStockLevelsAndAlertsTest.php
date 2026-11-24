@@ -5,6 +5,7 @@ namespace Modules\Inventory\Tests\Feature;
 use App\Models\User;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Notification;
 use Livewire\Livewire;
@@ -139,6 +140,26 @@ class StoreStockLevelsAndAlertsTest extends TestCase
 
         $this->take(24); // Drops again: alerts again.
         $this->assertSame(3, $this->alertsFor($this->keeper));
+    }
+
+    public function test_a_rolled_back_movement_does_not_silence_later_alerts(): void
+    {
+        $this->receive(20);
+        app(StoreStockLevelService::class)->setLevels($this->gloves->id, $this->main->id, 5, null);
+
+        try {
+            DB::transaction(function (): void {
+                $this->take(16);
+
+                throw new \RuntimeException('Something else in the same transaction failed.');
+            });
+        } catch (\RuntimeException) {
+        }
+
+        $this->assertSame(0, $this->alertsFor($this->keeper), 'Nothing really moved.');
+
+        $this->take(16);
+        $this->assertSame(1, $this->alertsFor($this->keeper));
     }
 
     public function test_items_without_a_reorder_point_or_with_alerts_disabled_stay_quiet(): void

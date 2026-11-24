@@ -40,14 +40,7 @@ class ViewStockBalance extends ViewRecord
                     /** @var StockBalance $record */
                     $record = $this->getRecord();
 
-                    app(StockAdjustmentService::class)->adjust(
-                        itemId: $record->inventory_item_id,
-                        branchId: $record->branch_id,
-                        locationType: $record->location_type,
-                        departmentId: $record->department_id,
-                        newQty: (int) $data['new_quantity'],
-                        reason: $data['reason'],
-                    );
+                    app(StockAdjustmentService::class)->adjustBalance($record, (int) $data['new_quantity']);
 
                     Notification::make()
                         ->success()

@@ -144,8 +144,8 @@ class StockLedgerService
     }
 
     /**
-     * Decrement exactly one row (item, store, lot, expiry), including the
-     * no-lot row, without FEFO spilling over into other lots.
+     * Decrement exactly one row (item, store or ward, lot, expiry), including
+     * the no-lot row, without FEFO spilling over into other lots.
      */
     public function lockAndDecrementExact(
         string $itemId,
@@ -157,18 +157,22 @@ class StockLedgerService
         ?string $lotNumber = null,
         ?string $expiryDate = null,
         ?string $storeId = null,
+        ?string $departmentId = null,
+        ?string $locationId = null,
+        ?string $stockTransferId = null,
     ): StockBalance {
         return $this->decrementSpecificLot(
             itemId: $itemId,
             branchId: $branchId,
             locationType: $locationType,
-            departmentId: null,
-            stockTransferId: null,
+            departmentId: $departmentId,
+            stockTransferId: $stockTransferId,
             qty: $qty,
             transactionType: $transactionType,
             reference: $reference,
             lotNumber: $lotNumber,
             expiryDate: $expiryDate,
+            locationId: $locationId,
             storeId: $storeId,
         );
     }

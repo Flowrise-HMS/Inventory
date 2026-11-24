@@ -15,7 +15,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property string $inventory_item_id
  * @property string|null $lot_number
  * @property \Illuminate\Support\Carbon|null $expiry_date
- * @property int $system_quantity
+ * @property int $system_quantity on hand when the stock-take started
+ * @property int|null $book_quantity on hand when this line was counted
  * @property bool $is_found_item
  * @property int|null $counted_quantity
  * @property string|null $variance_reason
@@ -35,6 +36,7 @@ class StockTakeLine extends Model
         'lot_number',
         'expiry_date',
         'system_quantity',
+        'book_quantity',
         'is_found_item',
         'counted_quantity',
         'variance_reason',
@@ -46,6 +48,7 @@ class StockTakeLine extends Model
     protected $casts = [
         'expiry_date' => 'date',
         'system_quantity' => 'integer',
+        'book_quantity' => 'integer',
         'is_found_item' => 'boolean',
         'counted_quantity' => 'integer',
         'counted_at' => 'datetime',
@@ -76,9 +79,13 @@ class StockTakeLine extends Model
         return $this->counted_quantity !== null;
     }
 
-    /** Counted minus system; null until counted. */
+    /**
+     * Counted minus what the ledger said at the moment of counting, so stock
+     * issued earlier in the stock-take is not mistaken for a loss. Null until
+     * counted.
+     */
     public function variance(): ?int
     {
-        return $this->counted_quantity === null ? null : $this->counted_quantity - $this->system_quantity;
+        return $this->counted_quantity === null ? null : $this->counted_quantity - (int) $this->book_quantity;
     }
 }

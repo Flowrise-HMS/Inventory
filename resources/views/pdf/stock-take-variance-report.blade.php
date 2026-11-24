@@ -51,7 +51,7 @@
                     <th>{{ __('Item') }}</th>
                     <th>{{ __('Lot') }}</th>
                     <th>{{ __('Expiry') }}</th>
-                    <th class="right">{{ __('System') }}</th>
+                    <th class="right">{{ __('System when counted') }}</th>
                     <th class="right">{{ __('Counted') }}</th>
                     <th class="right">{{ __('Difference') }}</th>
                     <th>{{ __('Reason') }}</th>
@@ -65,7 +65,7 @@
                         <td>{{ $line->inventoryItem?->name }}@if ($line->is_found_item)<br><span class="muted">{{ __('Found during count') }}</span>@endif</td>
                         <td>{{ $line->lot_number ?? '-' }}</td>
                         <td>{{ $line->expiry_date?->format('Y-m-d') ?? '-' }}</td>
-                        <td class="right">{{ $line->system_quantity }}</td>
+                        <td class="right">{{ $line->book_quantity }}</td>
                         <td class="right">{{ $line->counted_quantity }}</td>
                         <td class="right {{ $variance > 0 ? 'over' : 'short' }}">{{ $variance > 0 ? '+'.$variance : $variance }}</td>
                         <td>{{ $line->variance_reason ?? '-' }}</td>

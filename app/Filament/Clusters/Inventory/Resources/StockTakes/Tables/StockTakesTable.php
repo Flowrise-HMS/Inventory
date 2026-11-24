@@ -6,6 +6,8 @@ use Filament\Actions\ViewAction;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Illuminate\Support\Facades\Auth;
+use Modules\Inventory\Classes\Services\StockTakeService;
 use Modules\Inventory\Enums\StockTakeStatus;
 use Modules\Inventory\Models\StockTake;
 
@@ -19,7 +21,7 @@ class StockTakesTable
                 ->withCount([
                     'lines',
                     'lines as counted_lines_count' => fn ($q) => $q->whereNotNull('counted_quantity'),
-                    'lines as variance_lines_count' => fn ($q) => $q->whereNotNull('counted_quantity')->whereColumn('counted_quantity', '!=', 'system_quantity'),
+                    'lines as variance_lines_count' => fn ($q) => $q->whereNotNull('counted_quantity')->whereColumn('counted_quantity', '!=', 'book_quantity'),
                 ]))
             ->defaultSort('started_at', 'desc')
             ->columns([
@@ -31,8 +33,12 @@ class StockTakesTable
                     ->state(fn (StockTake $record): string => sprintf('%d / %d', $record->counted_lines_count, $record->lines_count)),
                 TextColumn::make('variance_lines_count')
                     ->label(__('Differences'))
+                    ->state(fn (StockTake $record): ?int => app(StockTakeService::class)->showsSystemQuantities($record, Auth::user())
+                        ? (int) $record->variance_lines_count
+                        : null)
+                    ->placeholder('—')
                     ->badge()
-                    ->color(fn (int $state): string => $state > 0 ? 'warning' : 'gray'),
+                    ->color(fn (?int $state): string => $state > 0 ? 'warning' : 'gray'),
                 TextColumn::make('started_at')
                     ->label(__('Started'))
                     ->dateTime()

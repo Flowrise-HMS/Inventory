@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\DB;
 use Modules\Inventory\Enums\StockLocationType;
 use Modules\Inventory\Enums\TransactionType;
 use Modules\Inventory\Models\InventoryTransaction;
+use Modules\Inventory\Models\StockBalance;
 use Modules\Inventory\Models\Store;
 
 class StockAdjustmentService
@@ -13,6 +14,45 @@ class StockAdjustmentService
     public function __construct(
         protected StockLedgerService $stockLedger,
     ) {}
+
+    /**
+     * Set the quantity of exactly this balance row (store, lot, expiry, ward).
+     * Prefer this over adjust(), which can only address the main store's or a
+     * department's row without a lot.
+     */
+    public function adjustBalance(StockBalance $balance, int $newQty): void
+    {
+        if ($newQty < 0) {
+            throw new \RuntimeException('Stock cannot be negative.');
+        }
+
+        DB::transaction(function () use ($balance, $newQty): void {
+            $current = StockBalance::query()->lockForUpdate()->findOrFail($balance->getKey());
+            $delta = $newQty - (int) $current->quantity_on_hand;
+
+            if ($delta === 0) {
+                throw new \RuntimeException('New quantity matches current on-hand quantity.');
+            }
+
+            $row = [
+                'itemId' => (string) $current->inventory_item_id,
+                'branchId' => (string) $current->branch_id,
+                'locationType' => $current->location_type,
+                'departmentId' => $current->department_id,
+                'stockTransferId' => $current->stock_transfer_id,
+                'qty' => abs($delta),
+                'transactionType' => TransactionType::Adjust,
+                'lotNumber' => $current->lot_number,
+                'expiryDate' => $current->expiry_date?->toDateString(),
+                'locationId' => $current->location_id,
+                'storeId' => $current->store_id,
+            ];
+
+            $delta > 0
+                ? $this->stockLedger->lockAndIncrement(...$row)
+                : $this->stockLedger->lockAndDecrementExact(...$row);
+        });
+    }
 
     public function adjust(
         string $itemId,

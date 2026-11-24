@@ -26,9 +26,6 @@ use Modules\Inventory\Models\StoreStockAlert;
  */
 class StoreStockLevelService
 {
-    /** @var array<string, true> item|store pairs waiting for an after-commit check */
-    protected static array $pending = [];
-
     /**
      * @return array{on_hand: int, reorder_point: int, max_level: ?int}
      */
@@ -201,17 +198,10 @@ class StoreStockLevelService
      */
     public function queueEvaluation(string $itemId, string $storeId): void
     {
-        $key = $itemId.'|'.$storeId;
-
-        if (isset(static::$pending[$key])) {
-            return;
-        }
-
-        static::$pending[$key] = true;
-
-        DB::afterCommit(function () use ($key, $itemId, $storeId): void {
-            unset(static::$pending[$key]);
-
+        // Not de-duplicated with a flag: the callback never runs when the
+        // transaction rolls back, so a flag would stay set and silence the item
+        // for the rest of a long-running worker. evaluate() is safe to repeat.
+        DB::afterCommit(function () use ($itemId, $storeId): void {
             // The stock movement has already committed: an alert failure must
             // never surface as a failed issue or receipt.
             try {
