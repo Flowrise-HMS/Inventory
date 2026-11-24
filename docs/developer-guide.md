@@ -7,8 +7,7 @@ For current rollout status, see [Module Status](../../../docs/shared/module-stat
 ## Canonical References
 
 1. [Modules/Inventory/README.md](../README.md)
-2. [Inventory design spec](../../../docs/superpowers/specs/2026-07-09-inventory-module-design.md)
-3. [Module Status](../../../docs/shared/module-status.md)
+2. [Module Status](../../../docs/shared/module-status.md)
 
 ## Architectural Role
 

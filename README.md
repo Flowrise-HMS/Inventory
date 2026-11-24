@@ -79,10 +79,10 @@ Enforced via `Feature::` in services and Filament navigation (`inventory_pharmac
 | `app/Enums/` | Item categories, stock location types, transaction types, status enums. |
 | `app/Policies/` | Authorization rules (7 policies, Shield-standard permissions). |
 | `app/Providers/` | Module boot/register logic and reorder-alert scheduler registration. |
-| `database/migrations/` | 14 schema migrations (including lot tracking). |
+| `database/migrations/` | 20 schema migrations (including lot tracking and stores). |
 | `database/factories/` | 5 model factories. |
 | `resources/views/pdf/` | Printable PDF templates. |
-| `tests/` | 21 test files (run with `php artisan test Modules/Inventory/tests/ --compact`). |
+| `tests/` | 38 test files (run with `php artisan test Modules/Inventory/tests/ --compact`). |
 
 ## Dependencies
 
@@ -108,4 +108,5 @@ See [module status](../../docs/shared/module-status.md) for rollout state.
 - **Feature toggles:** `FeatureSettings` properties (`inventory_pharmacy_procurement`, `inventory_ward_requisitions`, `inventory_inter_branch_transfers`); enforced in services and Filament navigation via `Feature::`
 - **Reorder alerts:** `NotificationSettings` (`inventory_reorder_alerts_enabled`, `inventory_reorder_alerts_frequency`); scheduled in `InventoryServiceProvider`
 - **Document numbering:** `DocumentNumberingService` generates `PO-`, `REQ-`, `TRF-` prefixed numbers
-- **Running tests:** `php artisan test --compact Modules/Inventory/tests` (21 test files; 14 migrations, 13 models, 5 factories, 7 policies)
+- **Running tests:** `php artisan test --compact Modules/Inventory/tests` (38 test files; 20 migrations, 19 models, 8 factories, 10 policies)
+- **REST API** (Api module, token scope `inventory`): items, suppliers, stock balances (`adjust`, needs `adjust_stock`; only main-store balances without lot, ward or transfer), stock transactions, purchase orders, requisitions (`approve`/`decline` need `Approve Requisition`; `endorse` is for the ward incharge; `cancel` for the requestor; issuing needs the signed hand-over and stays in the panel), stock transfers. See the [API Reference](../../docs/developer-guide/api-reference.md)
