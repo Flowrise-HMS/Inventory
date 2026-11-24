@@ -5,10 +5,13 @@ namespace Modules\Inventory\Http\Controllers\Api;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Modules\Core\Classes\Services\WardAccessService;
 use Modules\Core\Http\Resources\FieldListTransformer;
 use Modules\Inventory\Classes\Services\RequisitionService;
+use Modules\Inventory\Enums\RequisitionStatus;
 use Modules\Inventory\Models\Requisition;
 use Modules\Inventory\Models\RequisitionItem;
+use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 
 /**
  * @group Inventory
@@ -80,7 +83,13 @@ class RequisitionController extends InventoryApiController
      */
     public function endorse(string $id): JsonResponse
     {
-        return $this->act($id, 'update', function (Requisition $requisition): Requisition {
+        return $this->act($id, 'view', function (Requisition $requisition): Requisition {
+            $user = auth()->user();
+
+            if (blank($requisition->location_id) || ! app(WardAccessService::class)->isWardIncharge($user, (string) $requisition->location_id)) {
+                throw new AccessDeniedHttpException('Only the ward incharge can endorse this requisition.');
+            }
+
             $this->domain(fn () => $this->requisitions->endorse($requisition));
 
             return $requisition->refresh();
@@ -96,7 +105,9 @@ class RequisitionController extends InventoryApiController
     {
         $data = $request->validate(['quantities' => ['nullable', 'array'], 'quantities.*' => ['integer', 'min:0']]);
 
-        return $this->act($id, 'update', function (Requisition $requisition) use ($data): Requisition {
+        return $this->act($id, 'approve', function (Requisition $requisition) use ($data): Requisition {
+            $this->requireStatus($requisition, [RequisitionStatus::Pending], 'Only pending requisitions can be approved.');
+            $this->assertWithinRequested($requisition, $data['quantities'] ?? []);
             $this->domain(fn () => $this->requisitions->approve($requisition, $data['quantities'] ?? null));
 
             return $requisition->refresh();
@@ -112,7 +123,8 @@ class RequisitionController extends InventoryApiController
     {
         $data = $request->validate(['reason' => ['required', 'string', 'max:500']]);
 
-        return $this->act($id, 'update', function (Requisition $requisition) use ($data): Requisition {
+        return $this->act($id, 'approve', function (Requisition $requisition) use ($data): Requisition {
+            $this->requireStatus($requisition, [RequisitionStatus::Pending], 'Only pending requisitions can be declined.');
             $this->requisitions->decline($requisition, $data['reason']);
 
             return $requisition->refresh();
@@ -120,14 +132,33 @@ class RequisitionController extends InventoryApiController
     }
 
     /**
-     * Cancel a requisition that is not finished.
+     * Cancel your own requisition before it is approved.
      */
     public function cancel(string $id): JsonResponse
     {
-        return $this->act($id, 'update', function (Requisition $requisition): Requisition {
+        return $this->act($id, 'view', function (Requisition $requisition): Requisition {
+            if ((int) $requisition->requestor_id !== (int) auth()->id()) {
+                throw new AccessDeniedHttpException('Only the requestor can cancel this requisition.');
+            }
+
+            $this->requireStatus($requisition, [RequisitionStatus::Pending, RequisitionStatus::PendingIncharge], 'Only pending requisitions can be cancelled.');
             $this->requisitions->cancel($requisition);
 
             return $requisition->refresh();
         });
+    }
+
+    /**
+     * @param  array<string, int>  $quantities
+     */
+    protected function assertWithinRequested(Requisition $requisition, array $quantities): void
+    {
+        foreach ($quantities as $itemId => $quantity) {
+            $item = $requisition->items->firstWhere('id', $itemId);
+
+            if ($item === null || (int) $quantity > (int) $item->quantity_requested) {
+                throw new \DomainException('Approved quantities must match requisition items and not exceed what was requested.');
+            }
+        }
     }
 }

@@ -4,12 +4,16 @@ declare(strict_types=1);
 
 use App\Models\User;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
-use Modules\Core\Models\Branch;
+use Illuminate\Support\Str;
 use Modules\Core\Enums\LocationType;
+use Modules\Core\Models\Branch;
 use Modules\Core\Models\Department;
 use Modules\Core\Models\Location;
 use Modules\Core\Models\Unit;
 use Modules\Core\Settings\FeatureSettings;
+use Modules\Inventory\Enums\PurchaseOrderStatus;
+use Modules\Inventory\Enums\RequisitionStatus;
+use Modules\Inventory\Enums\StockTransferStatus;
 use Modules\Inventory\Models\InventoryItem;
 use Modules\Inventory\Models\InventoryTransaction;
 use Modules\Inventory\Models\PurchaseOrder;
@@ -126,6 +130,10 @@ describe('inventory workflow', function () use ($modules): void {
                 $this->user->givePermissionTo("{$action} {$subject}");
             }
         }
+        foreach (['Approve Requisition', 'adjust_stock'] as $permission) {
+            Permission::findOrCreate($permission, 'web');
+            $this->user->givePermissionTo($permission);
+        }
         app(PermissionRegistrar::class)->forgetCachedPermissions();
         FeatureSettings::fake([
             'inventory_pharmacy_procurement' => true,
@@ -156,10 +164,56 @@ describe('inventory workflow', function () use ($modules): void {
     it('adjusts a stock balance after a count', function (): void {
         $balance = StockBalance::factory()->create(['branch_id' => $this->branch->id, 'quantity_on_hand' => 100]);
 
-        $this->postJson("/api/v1/stock-balances/{$balance->id}/adjust", ['quantity' => 100])->assertUnprocessable();
+        $this->postJson("/api/v1/stock-balances/{$balance->id}/adjust", ['quantity' => 95])->assertJsonValidationErrors('reason');
+        $this->postJson("/api/v1/stock-balances/{$balance->id}/adjust", ['quantity' => 100, 'reason' => 'Count'])->assertUnprocessable();
         $this->postJson("/api/v1/stock-balances/{$balance->id}/adjust", ['quantity' => 95, 'reason' => 'Count'])
             ->assertOk()
             ->assertJsonPath('data.quantity_on_hand', 95);
+    });
+
+    it('refuses to adjust lot-tracked balances and needs the adjust permission', function (): void {
+        $lot = StockBalance::factory()->create(['branch_id' => $this->branch->id, 'quantity_on_hand' => 10, 'lot_number' => 'L-9']);
+        $this->postJson("/api/v1/stock-balances/{$lot->id}/adjust", ['quantity' => 5, 'reason' => 'Count'])->assertUnprocessable();
+
+        $this->user->revokePermissionTo('adjust_stock');
+        app('auth')->forgetGuards();
+        $balance = StockBalance::factory()->create(['branch_id' => $this->branch->id, 'quantity_on_hand' => 10]);
+        $this->postJson("/api/v1/stock-balances/{$balance->id}/adjust", ['quantity' => 5, 'reason' => 'Count'])->assertForbidden();
+    });
+
+    it('needs the approve permission and a pending status to approve or decline', function (): void {
+        $requisition = Requisition::factory()->create(['branch_id' => $this->branch->id, 'status' => RequisitionStatus::Pending]);
+
+        $this->user->revokePermissionTo('Approve Requisition');
+        app('auth')->forgetGuards();
+        $this->postJson("/api/v1/requisitions/{$requisition->id}/approve")->assertForbidden();
+        $this->postJson("/api/v1/requisitions/{$requisition->id}/decline", ['reason' => 'No'])->assertForbidden();
+
+        $this->user->givePermissionTo('Approve Requisition');
+        app('auth')->forgetGuards();
+        $this->postJson("/api/v1/requisitions/{$requisition->id}/approve")->assertOk();
+        $this->postJson("/api/v1/requisitions/{$requisition->id}/decline", ['reason' => 'No'])->assertUnprocessable();
+    });
+
+    it('lets only the ward incharge endorse and only the requestor cancel', function (): void {
+        $requisition = Requisition::factory()->create(['branch_id' => $this->branch->id, 'status' => RequisitionStatus::PendingIncharge]);
+
+        $this->postJson("/api/v1/requisitions/{$requisition->id}/endorse")->assertForbidden();
+        $this->postJson("/api/v1/requisitions/{$requisition->id}/cancel")->assertForbidden();
+
+        $requisition->update(['requestor_id' => $this->user->id]);
+        $this->postJson("/api/v1/requisitions/{$requisition->id}/cancel")->assertOk()->assertJsonPath('data.status', 'cancelled');
+    });
+
+    it('refuses to receive a draft order or ship a transfer twice', function (): void {
+        $po = PurchaseOrder::factory()->create(['branch_id' => $this->branch->id, 'status' => PurchaseOrderStatus::Draft]);
+        $this->postJson("/api/v1/purchase-orders/{$po->id}/receive", [
+            'items' => [['purchase_order_item_id' => (string) Str::uuid(), 'quantity_received' => 1]],
+        ])->assertUnprocessable();
+
+        $transfer = StockTransfer::factory()->create(['from_branch_id' => $this->branch->id, 'status' => StockTransferStatus::Shipped]);
+        $this->postJson("/api/v1/stock-transfers/{$transfer->id}/ship")->assertUnprocessable();
+        $this->postJson("/api/v1/stock-transfers/{$transfer->id}/cancel")->assertUnprocessable();
     });
 
     it('creates and declines a requisition', function (): void {

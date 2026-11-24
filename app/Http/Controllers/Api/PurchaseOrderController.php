@@ -7,6 +7,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Modules\Core\Http\Resources\FieldListTransformer;
 use Modules\Inventory\Classes\Services\PurchaseOrderService;
+use Modules\Inventory\Enums\PurchaseOrderStatus;
 use Modules\Inventory\Models\PurchaseOrder;
 use Modules\Inventory\Models\PurchaseOrderItem;
 
@@ -83,6 +84,7 @@ class PurchaseOrderController extends InventoryApiController
     public function submit(string $id): JsonResponse
     {
         return $this->act($id, 'update', function (PurchaseOrder $order): PurchaseOrder {
+            $this->requireStatus($order, [PurchaseOrderStatus::Draft], 'Only draft orders can be submitted.');
             $this->orders->submit($order);
 
             return $order->refresh();
@@ -113,6 +115,7 @@ class PurchaseOrderController extends InventoryApiController
         ]);
 
         return $this->act($id, 'update', function (PurchaseOrder $order) use ($data): PurchaseOrder {
+            $this->requireStatus($order, [PurchaseOrderStatus::Submitted, PurchaseOrderStatus::PartiallyReceived], 'Only submitted or partially received orders can be received.');
             $this->domain(fn () => $this->orders->receive($order, $data));
 
             return $order->refresh();
@@ -129,6 +132,7 @@ class PurchaseOrderController extends InventoryApiController
         $data = $request->validate(['reason' => ['nullable', 'string', 'max:500']]);
 
         return $this->act($id, 'update', function (PurchaseOrder $order) use ($data): PurchaseOrder {
+            $this->requireStatus($order, [PurchaseOrderStatus::Submitted, PurchaseOrderStatus::PartiallyReceived, PurchaseOrderStatus::Received], 'Only submitted or received orders can be closed.');
             $this->orders->closeRemaining($order, $data['reason'] ?? null);
 
             return $order->refresh();
@@ -141,6 +145,7 @@ class PurchaseOrderController extends InventoryApiController
     public function cancel(string $id): JsonResponse
     {
         return $this->act($id, 'update', function (PurchaseOrder $order): PurchaseOrder {
+            $this->requireStatus($order, [PurchaseOrderStatus::Draft, PurchaseOrderStatus::Submitted], 'Only draft or submitted orders can be cancelled.');
             $this->domain(fn () => $this->orders->cancel($order));
 
             return $order->refresh();

@@ -8,6 +8,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Modules\Core\Http\Resources\FieldListTransformer;
 use Modules\Inventory\Classes\Services\InterBranchTransferService;
+use Modules\Inventory\Enums\StockTransferStatus;
 use Modules\Inventory\Models\StockTransfer;
 use Modules\Inventory\Models\StockTransferItem;
 
@@ -96,6 +97,7 @@ class StockTransferController extends InventoryApiController
             if ($transfer->from_branch_id !== $this->currentBranchId()) {
                 throw new \InvalidArgumentException('Only the sending branch can ship a transfer.');
             }
+            $this->requireStatus($transfer, [StockTransferStatus::Draft], 'Only draft transfers can be shipped.');
             $this->domain(fn () => $this->transfers->ship($transfer, $data['quantities'] ?? []));
 
             return $transfer->refresh();
@@ -115,6 +117,7 @@ class StockTransferController extends InventoryApiController
             if ($transfer->to_branch_id !== $this->currentBranchId()) {
                 throw new \InvalidArgumentException('Only the receiving branch can receive a transfer.');
             }
+            $this->requireStatus($transfer, [StockTransferStatus::Shipped, StockTransferStatus::PartiallyReceived], 'Only shipped transfers can be received.');
             $this->domain(fn () => $this->transfers->receive($transfer, $data['quantities'] ?? []));
 
             return $transfer->refresh();
@@ -127,6 +130,7 @@ class StockTransferController extends InventoryApiController
     public function cancel(string $id): JsonResponse
     {
         return $this->act($id, 'update', function (StockTransfer $transfer): StockTransfer {
+            $this->requireStatus($transfer, [StockTransferStatus::Draft], 'Only draft transfers can be cancelled.');
             $this->domain(fn () => $this->transfers->cancel($transfer));
 
             return $transfer->refresh();
