@@ -27,7 +27,7 @@ FilamentResourceTestSuite::register([
     'model' => InventoryTransaction::class,
     'listPage' => ListInventoryTransactions::class,
     'viewPage' => ViewInventoryTransaction::class,
-    'sortColumn' => 'unit_label_snapshot',
+    'sortColumn' => 'created_at',
     'filter' => [
         'name' => 'transaction_type',
         'value' => TransactionType::Receive->value,
@@ -41,7 +41,7 @@ FilamentResourceTestSuite::register([
         'transaction_type' => TransactionType::Receive,
         ...$attributes,
     ]),
-    'makeRecords' => fn (TestCase $test, int $count) => InventoryTransaction::factory()->count($count)->create([
+    'makeRecords' => fn (TestCase $test, int $count) => InventoryTransaction::factory()->count($count)->sequence(fn ($sequence): array => ['created_at' => now()->subMinutes($sequence->index * 10)])->create([
         'branch_id' => $test->branch->id,
         'transaction_type' => TransactionType::Receive,
     ]),

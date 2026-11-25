@@ -48,7 +48,7 @@ class WardInventoryAndBrokenItemsTest extends TestCase
         parent::setUp();
 
         $this->branch = Branch::factory()->create();
-        $this->department = Department::factory()->create(['branch_id' => $this->branch->id, 'is_active' => true]);
+        $this->department = Department::factory()->create(['is_active' => true]);
         $this->incharge = User::factory()->create(['branch_id' => $this->branch->id, 'is_active' => true]);
         $this->regularNurse = User::factory()->create(['branch_id' => $this->branch->id, 'is_active' => true]);
 
@@ -59,6 +59,8 @@ class WardInventoryAndBrokenItemsTest extends TestCase
             'is_active' => true,
             'nurse_in_charge_id' => $this->incharge->id,
         ]);
+        // Departments belong to a branch through their locations.
+        $this->department->locations()->attach($this->wardA->id, ['is_primary' => true]);
 
         $this->wardB = Location::factory()->create([
             'branch_id' => $this->branch->id,

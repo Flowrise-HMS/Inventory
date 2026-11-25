@@ -44,12 +44,18 @@ FilamentResourceTestSuite::register([
     'hasBulkDelete' => true,
     'hasRecordDelete' => true,
     'userAttributes' => fn (TestCase $test): array => ['branch_id' => $test->fromBranch->id],
-    'makeRecord' => fn (TestCase $test, array $attributes = []): StockTransfer => StockTransfer::factory()->create([
-        'from_branch_id' => $test->fromBranch->id,
-        'to_branch_id' => $test->toBranch->id,
-        'status' => StockTransferStatus::Draft,
-        ...$attributes,
-    ]),
+    'makeRecord' => function (TestCase $test, array $attributes = []): StockTransfer {
+        $record = StockTransfer::factory()->create([
+            'from_branch_id' => $test->fromBranch->id,
+            'to_branch_id' => $test->toBranch->id,
+            'status' => StockTransferStatus::Draft,
+            ...$attributes,
+        ]);
+        // The form requires at least one line.
+        $record->items()->create(['inventory_item_id' => $test->item->id, 'quantity_requested' => 2]);
+
+        return $record;
+    },
     'makeRecords' => fn (TestCase $test, int $count) => StockTransfer::factory()->count($count)->create([
         'from_branch_id' => $test->fromBranch->id,
         'to_branch_id' => $test->toBranch->id,

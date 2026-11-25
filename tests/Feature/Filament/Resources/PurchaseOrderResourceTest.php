@@ -39,11 +39,17 @@ FilamentResourceTestSuite::register([
     'hasBulkDelete' => true,
     'hasRecordDelete' => true,
     'userAttributes' => fn (TestCase $test): array => ['branch_id' => $test->branch->id],
-    'makeRecord' => fn (TestCase $test, array $attributes = []): PurchaseOrder => PurchaseOrder::factory()->create([
-        'branch_id' => $test->branch->id,
-        'supplier_id' => $test->supplier->id,
-        ...$attributes,
-    ]),
+    'makeRecord' => function (TestCase $test, array $attributes = []): PurchaseOrder {
+        $record = PurchaseOrder::factory()->create([
+            'branch_id' => $test->branch->id,
+            'supplier_id' => $test->supplier->id,
+            ...$attributes,
+        ]);
+        // The form requires at least one line.
+        $record->items()->create(['inventory_item_id' => $test->item->id, 'quantity_ordered' => 5]);
+
+        return $record;
+    },
     'makeRecords' => fn (TestCase $test, int $count) => PurchaseOrder::factory()->count($count)->create([
         'branch_id' => $test->branch->id,
         'supplier_id' => $test->supplier->id,

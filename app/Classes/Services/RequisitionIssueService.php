@@ -433,11 +433,7 @@ class RequisitionIssueService
      */
     protected function enumFrom(string $enum, mixed $value): ?\BackedEnum
     {
-        if ($value instanceof $enum) {
-            return $value;
-        }
-
-        return is_string($value) || is_int($value) ? $enum::tryFrom($value) : null;
+        return enum_try_from($enum, $value);
     }
 
     /**

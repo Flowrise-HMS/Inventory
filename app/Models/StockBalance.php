@@ -47,9 +47,7 @@ class StockBalance extends Model
         // Central (dispensary) stock must always belong to a store. Rows created
         // without one (factories, legacy callers) land in the branch's main store.
         static::creating(function (StockBalance $balance): void {
-            $locationType = $balance->location_type instanceof StockLocationType
-                ? $balance->location_type
-                : StockLocationType::tryFrom((string) $balance->location_type);
+            $locationType = enum_try_from(StockLocationType::class, $balance->location_type);
 
             if ($locationType === StockLocationType::Dispensary) {
                 $balance->store_id ??= Store::mainForBranch((string) $balance->branch_id)->getKey();

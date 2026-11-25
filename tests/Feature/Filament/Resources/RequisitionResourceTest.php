@@ -39,12 +39,18 @@ FilamentResourceTestSuite::register([
     'hasBulkDelete' => true,
     'hasRecordDelete' => true,
     'userAttributes' => fn (TestCase $test): array => ['branch_id' => $test->branch->id],
-    'makeRecord' => fn (TestCase $test, array $attributes = []): Requisition => Requisition::factory()->create([
-        'branch_id' => $test->branch->id,
-        'department_id' => $test->department->id,
-        'requestor_id' => auth()->id(),
-        ...$attributes,
-    ]),
+    'makeRecord' => function (TestCase $test, array $attributes = []): Requisition {
+        $record = Requisition::factory()->create([
+            'branch_id' => $test->branch->id,
+            'department_id' => $test->department->id,
+            'requestor_id' => auth()->id(),
+            ...$attributes,
+        ]);
+        // The form requires at least one line.
+        $record->items()->create(['inventory_item_id' => $test->item->id, 'quantity_requested' => 3]);
+
+        return $record;
+    },
     'makeRecords' => fn (TestCase $test, int $count) => Requisition::factory()->count($count)->create([
         'branch_id' => $test->branch->id,
         'department_id' => $test->department->id,
