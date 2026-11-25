@@ -15,6 +15,7 @@ use Modules\Inventory\Enums\StockLocationType;
 use Modules\Inventory\Enums\StockTakeStatus;
 use Modules\Inventory\Enums\TransactionType;
 use Modules\Inventory\Filament\Clusters\Inventory\Resources\StockTakes\Pages\CreateStockTake;
+use Modules\Inventory\Filament\Clusters\Inventory\Resources\StockTakes\Pages\ListStockTakes;
 use Modules\Inventory\Filament\Clusters\Inventory\Resources\StockTakes\Pages\ViewStockTake;
 use Modules\Inventory\Filament\Clusters\Inventory\Resources\StockTakes\RelationManagers\StockTakeLinesRelationManager;
 use Modules\Inventory\Models\InventoryItem;
@@ -116,22 +117,24 @@ class StockTakeTest extends TestCase
         app(StockTakeService::class)->start($this->store);
     }
 
-    public function test_approval_posts_variances_and_keeps_issues_made_during_the_count(): void
+    private function issue(InventoryItem $item, int $qty, ?string $lot = null, ?string $expiry = null): void
+    {
+        app(StockLedgerService::class)->lockAndDecrementExact(
+            itemId: $item->id,
+            branchId: $this->branch->id,
+            locationType: StockLocationType::Dispensary,
+            qty: $qty,
+            transactionType: TransactionType::Issue,
+            lotNumber: $lot,
+            expiryDate: $expiry,
+            storeId: $this->store->id,
+        );
+    }
+
+    public function test_approval_posts_variances_and_found_items(): void
     {
         $service = app(StockTakeService::class);
         $take = $service->start($this->store);
-
-        // 3 packs of G-1 are issued while people count.
-        app(StockLedgerService::class)->lockAndDecrementExact(
-            itemId: $this->gloves->id,
-            branchId: $this->branch->id,
-            locationType: StockLocationType::Dispensary,
-            qty: 3,
-            transactionType: TransactionType::Issue,
-            lotNumber: 'G-1',
-            expiryDate: now()->addYear()->toDateString(),
-            storeId: $this->store->id,
-        );
 
         $service->recordCount($this->line($take, $this->gloves, 'G-1'), 9, 'One pack damaged');
         $service->recordCount($this->line($take, $this->gloves, 'G-2'), 4);
@@ -139,12 +142,10 @@ class StockTakeTest extends TestCase
         $service->addFoundItem($take, $this->gloves->id, 'G-9', now()->addMonths(6)->toDateString(), 2, 'Box behind shelf');
 
         $service->submit($take);
-        $this->assertSame(StockTakeStatus::Submitted, $take->fresh()->status);
-
         $service->approve($take->fresh(), $this->supervisor);
 
         $this->assertSame(StockTakeStatus::Approved, $take->fresh()->status);
-        $this->assertSame(6, $this->onHand($this->gloves, 'G-1'), '10 snapshot − 3 issued − 1 short = 6.');
+        $this->assertSame(9, $this->onHand($this->gloves, 'G-1'));
         $this->assertSame(4, $this->onHand($this->gloves, 'G-2'));
         $this->assertSame(8, $this->onHand($this->soap));
         $this->assertSame(2, $this->onHand($this->gloves, 'G-9'));
@@ -155,6 +156,68 @@ class StockTakeTest extends TestCase
             TransactionType::Adjust,
             InventoryTransaction::query()->findOrFail($this->line($take, $this->soap)->adjustment_transaction_id)->transaction_type,
         );
+    }
+
+    public function test_stock_issued_before_a_line_is_counted_is_not_subtracted_twice(): void
+    {
+        $service = app(StockTakeService::class);
+        $take = $service->start($this->store);
+        $expiry = now()->addYear()->toDateString();
+
+        // 10 at the snapshot, 3 issued, so 7 really are on the shelf.
+        $this->issue($this->gloves, 3, 'G-1', $expiry);
+
+        $service->recordCount($this->line($take, $this->gloves, 'G-1'), 7);
+        $service->recordCount($this->line($take, $this->gloves, 'G-2'), 4);
+        $service->recordCount($this->line($take, $this->soap), 6);
+
+        $this->assertSame(0, $service->summary($take)['with_variance'], 'A correct count is not a difference.');
+        $service->submit($take);
+        $service->approve($take->fresh(), $this->supervisor);
+
+        $this->assertSame(7, $this->onHand($this->gloves, 'G-1'));
+    }
+
+    public function test_stock_issued_after_a_line_is_counted_is_kept(): void
+    {
+        $service = app(StockTakeService::class);
+        $take = $service->start($this->store);
+        $expiry = now()->addYear()->toDateString();
+
+        $service->recordCount($this->line($take, $this->gloves, 'G-1'), 7, 'Three missing');
+        $service->recordCount($this->line($take, $this->gloves, 'G-2'), 4);
+        $service->recordCount($this->line($take, $this->soap), 6);
+
+        $this->issue($this->gloves, 2, 'G-1', $expiry);
+
+        $service->submit($take);
+        $service->approve($take->fresh(), $this->supervisor);
+
+        $this->assertSame(5, $this->onHand($this->gloves, 'G-1'), '7 counted, then 2 issued.');
+    }
+
+    public function test_recounting_a_line_compares_with_the_stock_at_the_new_count(): void
+    {
+        $service = app(StockTakeService::class);
+        $take = $service->start($this->store);
+
+        $service->recordCount($this->line($take, $this->soap), 4, 'Two missing');
+        $this->issue($this->soap, 1);
+        $service->recordCount($this->line($take, $this->soap), 5);
+
+        $this->assertSame(0, $this->line($take, $this->soap)->variance());
+    }
+
+    public function test_a_found_lot_received_after_the_snapshot_is_not_added_twice(): void
+    {
+        $service = app(StockTakeService::class);
+        $take = $service->start($this->store);
+        $expiry = now()->addMonths(6)->toDateString();
+
+        $this->receive($this->gloves, 5, 'G-NEW', $expiry);
+        $line = $service->addFoundItem($take, $this->gloves->id, 'G-NEW', $expiry, 5);
+
+        $this->assertSame(0, $line->variance());
     }
 
     public function test_submit_needs_every_line_counted_and_reasons_on_an_open_count(): void
@@ -233,19 +296,11 @@ class StockTakeTest extends TestCase
         $service = app(StockTakeService::class);
         $take = $service->start($this->store);
 
-        // All soap issued during the count; counters still saw 3 on the shelf.
-        app(StockLedgerService::class)->lockAndDecrementExact(
-            itemId: $this->soap->id,
-            branchId: $this->branch->id,
-            locationType: StockLocationType::Dispensary,
-            qty: 6,
-            transactionType: TransactionType::Issue,
-            storeId: $this->store->id,
-        );
-
         $service->recordCount($this->line($take, $this->gloves, 'G-1'), 12, 'Extra box');
         $service->recordCount($this->line($take, $this->gloves, 'G-2'), 4);
         $service->recordCount($this->line($take, $this->soap), 3, 'Miscounted');
+        // Then 5 of the 6 are issued: the 3-short variance no longer fits.
+        $this->issue($this->soap, 5);
         $service->submit($take);
 
         try {
@@ -324,6 +379,35 @@ class StockTakeTest extends TestCase
         $service->submit($take);
 
         $this->assertStringStartsWith('%PDF', app(StockTakePdfService::class)->varianceReport($take->fresh()));
+    }
+
+    public function test_a_blind_count_hides_differences_from_counters_everywhere(): void
+    {
+        foreach (['ViewAny StockTake', 'View StockTake', 'Update StockTake', 'approve_stock_take'] as $permission) {
+            Permission::findOrCreate($permission, 'web');
+        }
+        $this->counter->givePermissionTo(['ViewAny StockTake', 'View StockTake', 'Update StockTake']);
+        $this->supervisor->givePermissionTo(['ViewAny StockTake', 'View StockTake', 'approve_stock_take']);
+        Filament::setCurrentPanel(Filament::getDefaultPanel());
+
+        $service = app(StockTakeService::class);
+        $take = $service->start($this->store, isBlind: true);
+        $service->recordCount($this->line($take, $this->soap), 1);
+
+        $this->assertFalse($service->showsSystemQuantities($take, $this->counter));
+        $this->assertTrue($service->showsSystemQuantities($take, $this->supervisor));
+
+        Livewire::actingAs($this->counter)
+            ->test(ViewStockTake::class, ['record' => $take->getRouteKey()])
+            ->assertOk()
+            ->assertDontSee('Units over / short')
+            ->assertDontSee('Lines with a difference');
+        Livewire::actingAs($this->counter)
+            ->test(ListStockTakes::class)
+            ->assertTableColumnStateSet('variance_lines_count', null, $take);
+        Livewire::actingAs($this->supervisor)
+            ->test(ViewStockTake::class, ['record' => $take->getRouteKey()])
+            ->assertSee('Units over / short');
     }
 
     public function test_storekeeper_starts_and_counts_from_the_screens(): void

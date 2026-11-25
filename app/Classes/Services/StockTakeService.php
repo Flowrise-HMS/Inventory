@@ -17,10 +17,14 @@ use Modules\Inventory\Models\Store;
 /**
  * Store stock-takes.
  *
- * Starting a count snapshots every central lot in the store. Stock keeps
- * moving while people count, so approval posts each line's variance
- * (counted − snapshot) as an adjustment rather than overwriting the current
- * balance: issues made during the count are not lost.
+ * Starting a count lists every central lot in the store. Stock keeps moving
+ * while people count, so each line is compared with the ledger at the moment
+ * its count is entered (book_quantity), not at the start, and approval posts
+ * that difference as an adjustment instead of overwriting the balance. Stock
+ * issued before or after a line is counted is therefore counted once.
+ *
+ * Stock that moves between a paper count and typing it in still shows up as a
+ * difference; enter counts promptly or pause issuing while counting on paper.
  */
 class StockTakeService
 {
@@ -98,12 +102,20 @@ class StockTakeService
             throw new \RuntimeException('A count cannot be negative.');
         }
 
-        $line->update([
-            'counted_quantity' => $counted,
-            'variance_reason' => filled($reason) ? trim((string) $reason) : $line->variance_reason,
-            'counted_by' => $counted === null ? null : $user?->getKey(),
-            'counted_at' => $counted === null ? null : now(),
-        ]);
+        DB::transaction(function () use ($line, $counted, $reason, $user): void {
+            $line->update([
+                'counted_quantity' => $counted,
+                'book_quantity' => $counted === null ? null : $this->lockedBookQuantity(
+                    $line->stockTake,
+                    $line->inventory_item_id,
+                    $line->lot_number,
+                    $line->expiry_date?->toDateString(),
+                ),
+                'variance_reason' => filled($reason) ? trim((string) $reason) : $line->variance_reason,
+                'counted_by' => $counted === null ? null : $user?->getKey(),
+                'counted_at' => $counted === null ? null : now(),
+            ]);
+        });
 
         return $line;
     }
@@ -152,17 +164,19 @@ class StockTakeService
             throw new \RuntimeException('That item and lot is already on the count sheet: enter the count on its line.');
         }
 
-        return $stockTake->lines()->create([
+        return DB::transaction(fn (): StockTakeLine => $stockTake->lines()->create([
             'inventory_item_id' => $itemId,
             'lot_number' => $lotNumber,
             'expiry_date' => $expiryDate,
             'system_quantity' => 0,
+            // Not always 0: the lot may have been received since the start.
+            'book_quantity' => $this->lockedBookQuantity($stockTake, $itemId, $lotNumber, $expiryDate),
             'is_found_item' => true,
             'counted_quantity' => $counted,
             'variance_reason' => filled($reason) ? trim((string) $reason) : null,
             'counted_by' => $user?->getKey(),
             'counted_at' => now(),
-        ]);
+        ]));
     }
 
     public function submit(StockTake $stockTake, ?User $user = null): void
@@ -234,7 +248,7 @@ class StockTakeService
 
             $lines = $fresh->lines()
                 ->with('inventoryItem')
-                ->whereColumn('counted_quantity', '!=', 'system_quantity')
+                ->whereColumn('counted_quantity', '!=', 'book_quantity')
                 ->get();
 
             foreach ($lines as $line) {
@@ -294,9 +308,9 @@ class StockTakeService
             ->toBase()
             ->selectRaw('COUNT(*) as lines_count')
             ->selectRaw('SUM(CASE WHEN counted_quantity IS NOT NULL THEN 1 ELSE 0 END) as counted')
-            ->selectRaw('SUM(CASE WHEN counted_quantity IS NOT NULL AND counted_quantity != system_quantity THEN 1 ELSE 0 END) as with_variance')
-            ->selectRaw('SUM(CASE WHEN counted_quantity > system_quantity THEN counted_quantity - system_quantity ELSE 0 END) as units_over')
-            ->selectRaw('SUM(CASE WHEN counted_quantity < system_quantity THEN system_quantity - counted_quantity ELSE 0 END) as units_short')
+            ->selectRaw('SUM(CASE WHEN counted_quantity IS NOT NULL AND counted_quantity != book_quantity THEN 1 ELSE 0 END) as with_variance')
+            ->selectRaw('SUM(CASE WHEN counted_quantity > book_quantity THEN counted_quantity - book_quantity ELSE 0 END) as units_over')
+            ->selectRaw('SUM(CASE WHEN counted_quantity < book_quantity THEN book_quantity - counted_quantity ELSE 0 END) as units_short')
             ->first();
 
         return [
@@ -311,9 +325,38 @@ class StockTakeService
     protected function unexplainedCount(StockTake $stockTake): int
     {
         return $stockTake->lines()
-            ->whereColumn('counted_quantity', '!=', 'system_quantity')
+            ->whereColumn('counted_quantity', '!=', 'book_quantity')
             ->where(fn ($q) => $q->whereNull('variance_reason')->orWhere('variance_reason', ''))
             ->count();
+    }
+
+    /**
+     * Counters on a blind count see neither system quantities nor anything
+     * that gives them away (differences, units over or short) while counting.
+     */
+    public function showsSystemQuantities(StockTake $stockTake, ?User $user): bool
+    {
+        return ! $stockTake->is_blind
+            || $stockTake->status !== StockTakeStatus::InProgress
+            || ($user !== null && $user->can('approve', $stockTake));
+    }
+
+    /**
+     * The ledger quantity of one lot right now, locked so no issue can slip in
+     * between reading it and saving the count.
+     */
+    protected function lockedBookQuantity(StockTake $stockTake, string $itemId, ?string $lotNumber, ?string $expiryDate): int
+    {
+        return (int) StockBalance::query()
+            ->where('store_id', $stockTake->store_id)
+            ->where('inventory_item_id', $itemId)
+            ->where('location_type', StockLocationType::Dispensary->value)
+            ->whereNull('department_id')
+            ->whereNull('stock_transfer_id')
+            ->when($lotNumber === null, fn ($q) => $q->whereNull('lot_number'), fn ($q) => $q->where('lot_number', $lotNumber))
+            ->when($expiryDate === null, fn ($q) => $q->whereNull('expiry_date'), fn ($q) => $q->whereDate('expiry_date', $expiryDate))
+            ->lockForUpdate()
+            ->value('quantity_on_hand');
     }
 
     protected function assertCounting(StockTake $stockTake): void

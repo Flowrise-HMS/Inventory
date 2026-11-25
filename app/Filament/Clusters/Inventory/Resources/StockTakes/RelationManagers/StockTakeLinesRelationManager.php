@@ -56,8 +56,13 @@ class StockTakeLinesRelationManager extends RelationManager
                 TextColumn::make('lot_number')->label(__('Lot'))->placeholder('—'),
                 TextColumn::make('expiry_date')->label(__('Expiry'))->date()->placeholder('—'),
                 TextColumn::make('system_quantity')
-                    ->label(__('System'))
+                    ->label(__('At start'))
                     ->numeric()
+                    ->visible($showSystem),
+                TextColumn::make('book_quantity')
+                    ->label(__('System when counted'))
+                    ->numeric()
+                    ->placeholder('—')
                     ->visible($showSystem),
                 $canCount
                     ? TextInputColumn::make('counted_quantity')
@@ -106,7 +111,7 @@ class StockTakeLinesRelationManager extends RelationManager
                     ->label(__('With a difference'))
                     ->visible($showSystem)
                     ->query(fn ($query) => $query->whereNotNull('stock_take_lines.counted_quantity')
-                        ->whereColumn('stock_take_lines.counted_quantity', '!=', 'stock_take_lines.system_quantity')),
+                        ->whereColumn('stock_take_lines.counted_quantity', '!=', 'stock_take_lines.book_quantity')),
             ])
             ->emptyStateHeading(__('This store had no stock lines at the snapshot'))
             ->emptyStateDescription(__('Use "Add found item" for anything on the shelf.'));
@@ -122,10 +127,6 @@ class StockTakeLinesRelationManager extends RelationManager
 
     protected function showsSystemQuantities(): bool
     {
-        $stockTake = $this->stockTake();
-
-        return ! $stockTake->is_blind
-            || $stockTake->status !== StockTakeStatus::InProgress
-            || (bool) Auth::user()?->can('approve', $stockTake);
+        return app(StockTakeService::class)->showsSystemQuantities($this->stockTake(), Auth::user());
     }
 }
